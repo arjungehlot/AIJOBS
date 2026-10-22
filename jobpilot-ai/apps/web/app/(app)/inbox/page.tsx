@@ -38,24 +38,24 @@ export default function Inbox() {
 
   return (
     <>
-      <div className="ph"><div><h1>Inbox</h1><p>Paste a recruiter reply, or sync from Gmail. Each reply is classified with fixed rules, linked to an application, and only changes a status when you press Apply.</p></div>
-        <button className="btn" onClick={syncGmail}>Sync Gmail</button></div>
+      <div className="ph"><div><h1>Reply Inbox</h1><p>Recruiter replies, classified with fixed rules. A status only changes when you press Apply.</p></div>
+        <button className="btn primary" onClick={syncGmail}>↻ Sync Gmail</button></div>
       {err && <div className="msg err" role="alert">{err}</div>}{ok && <div className="msg ok">{ok}</div>}
-      <div className="grid">
-        <form className="card s5 stack" onSubmit={submit}>
-          <div className="card-h"><h2>Analyze a reply</h2><button type="button" className="btn sm" onClick={() => setForm(EXAMPLE)}>Fill example</button></div>
-          <label className="f">From (optional)<input value={form.fromEmail} onChange={(e) => setForm({ ...form, fromEmail: e.target.value })} placeholder="recruiter@company.com" /></label>
-          <label className="f">Subject<input required value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} /></label>
-          <label className="f">Email text<textarea required rows={9} style={{ height: 'auto' }} value={form.body} onChange={(e) => setForm({ ...form, body: e.target.value })} /></label>
+      <div className="pg-two">
+        <form className="card pg-form" onSubmit={submit} style={{ position: 'sticky', top: 8 }}>
+          <div className="card-h" style={{ margin: 0 }}><div className="pg-h"><span className="ic" style={{ background: 'linear-gradient(135deg,#38BDF8,#6366F1)' }}>✉</span><h2>Analyze a reply</h2></div><button type="button" className="btn sm" onClick={() => setForm(EXAMPLE)}>Fill example</button></div>
+          <label className="az-f">From (optional)<input value={form.fromEmail} onChange={(e) => setForm({ ...form, fromEmail: e.target.value })} placeholder="recruiter@company.com" /></label>
+          <label className="az-f">Subject<input required value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} /></label>
+          <label className="az-f">Email text<textarea required rows={9} style={{ height: 'auto', minHeight: 170 }} value={form.body} onChange={(e) => setForm({ ...form, body: e.target.value })} /></label>
           <button className="btn primary" style={{ alignSelf: 'flex-start' }}>Analyze reply</button>
-          <p className="faint">Connect Gmail under Email Setup to import replies automatically. Instructions inside an email are treated as text and are never followed.</p>
+          <p className="faint" style={{ fontSize: 11.5, margin: 0 }}>🔒 Connect Gmail under Email Setup to import replies automatically. Instructions inside an email are treated as text and are never followed.</p>
         </form>
-        <div className="s7 stack">
-          {!msgs ? <div className="card muted">Loading</div> : msgs.length === 0 ? <div className="card empty">No replies yet. Paste one on the left, or press “Fill example”.</div> : msgs.map((m) => {
+        <div className="pg-list">
+          {!msgs ? <div className="card muted">Loading</div> : msgs.length === 0 ? <div className="card pg-empty"><div className="big">📬</div><b>No replies yet</b><span>Paste one on the left, press “Fill example”, or sync Gmail.</span></div> : msgs.map((m) => {
             const a = m.analysis, c = CAT[a.category] ?? CAT.uncertain, ex = a.extracted ?? {};
             const linked = m.applicationId && m.applicationId._id;
             return (
-              <article className="card stack" key={m._id}>
+              <article className={`card pg-msg ${c.tone}`} key={m._id}>
                 <div className="card-h">
                   <div><b>{m.subject}</b><div className="faint">{m.fromEmail ?? 'unknown sender'} · {new Date(m.receivedAt).toLocaleString()}</div></div>
                   <div style={{ textAlign: 'right' }}><span className={`pill ${c.tone}`}>{c.label}</span><div className="faint">{Math.round(a.confidence * 100)}% sure</div></div>

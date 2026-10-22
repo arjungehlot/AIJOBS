@@ -1,4 +1,5 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { z } from 'zod';
@@ -28,11 +29,16 @@ export const CREDITS: Record<SourceId, { name: string; url: string }> = {
   jobicy: { name: 'Jobicy', url: 'https://jobicy.com' },
 };
 
+export interface ProgressStep { at: number; pct: number; text: string }
+interface SearchJob { userId: string; startedAt: number; pct: number; steps: ProgressStep[]; done: boolean; error?: string; result?: unknown }
+type Report = (pct: number, text: string) => void;
+
 const UA = 'JobPilotAI/0.1 (personal job search; contact: owner)';
 const yearsIn = (t: string) => { const m = t.match(/(\d{1,2})\s*\+?\s*(?:years?|yrs?)/i); return m ? Number(m[1]) : undefined; };
 
 @Injectable()
 export class DiscoveryService {
+  private readonly runs = new Map<string, SearchJob>();
   constructor(
     @InjectModel(Job.name) private readonly jobs: Model<Job>,
     @InjectModel(JobMatch.name) private readonly matches: Model<JobMatch>,
@@ -44,23 +50,46 @@ export class DiscoveryService {
 
   sources() { return SOURCES.map((id) => ({ id, ...CREDITS[id] })); }
 
+  /** Starts a search in the background and returns an id to poll. The steps reported are real, as they happen. */
+  start(userId: string, dto: DiscoverInput) {
+    for (const [k, v] of this.runs) if (Date.now() - v.startedAt > 15 * 60_000) this.runs.delete(k); // forget old runs
+    const id = randomUUID();
+    const job: SearchJob = { userId, startedAt: Date.now(), pct: 0, steps: [], done: false };
+    this.runs.set(id, job);
+    const report: Report = (pct, text) => { job.pct = Math.max(job.pct, pct); job.steps.push({ at: Date.now() - job.startedAt, pct: job.pct, text }); };
+    this.search(userId, dto, 'user', report)
+      .then((r) => { job.result = r; job.pct = 100; job.done = true; })
+      .catch((e: any) => { job.error = String(e?.response?.message ?? e?.message ?? 'Search failed').slice(0, 300); job.done = true; });
+    return { id };
+  }
+
+  status(userId: string, id: string, since = 0) {
+    const j = this.runs.get(id);
+    if (!j || j.userId !== userId) throw new NotFoundException('Search not found (it may have expired)');
+    return { done: j.done, pct: j.pct, elapsedMs: Date.now() - j.startedAt, steps: j.steps.slice(since), total: j.steps.length, error: j.error ?? null, result: j.done && !j.error ? j.result : null };
+  }
+
   /**
    * Finds real, current openings on public job boards, stores the relevant ones, scores them against the profile.
    * It never applies to anything. Applying is a separate, gated step.
    */
-  async search(userId: string, dto: DiscoverInput, actor: 'user' | 'agent' = 'user') {
+  async search(userId: string, dto: DiscoverInput, actor: 'user' | 'agent' = 'user', report: Report = () => undefined) {
+    report(3, 'Reading your career profile');
     const profile = await this.profiles.findOne({ _id: dto.careerProfileId, userId }).lean();
     if (!profile) throw new NotFoundException('Career profile not found');
     if (!dto.query && !profile.targetTitles.length && !profile.skills.length) throw new BadRequestException('Add target job titles or skills to your career profile (or type a search) first.');
     const ids = dto.sources ?? [...SOURCES];
     const q = dto.query ?? profile.targetTitles[0] ?? profile.skills[0] ?? '';
 
+    report(6, `Searching ${ids.length} job boards for “${q}”`);
+    let fetchedN = 0;
     const fetched = await Promise.all(ids.map(async (id) => {
+      const done = (r: { id: SourceId; ok: boolean; error?: string; jobs: RawJob[] }) => { fetchedN++; report(6 + Math.round((fetchedN / ids.length) * 24), r.ok ? `${CREDITS[id].name}: ${r.jobs.length} openings found` : `${CREDITS[id].name}: unavailable (${r.error})`); return r; };
       try {
         const res = await fetch(sourceUrl(id, q), { headers: { 'user-agent': UA, accept: 'application/json' }, signal: AbortSignal.timeout(20_000) });
-        if (!res.ok) return { id, ok: false, error: `HTTP ${res.status}`, jobs: [] as RawJob[] };
-        return { id, ok: true, jobs: PARSERS[id](await res.json()) };
-      } catch { return { id, ok: false, error: 'Could not reach this source', jobs: [] as RawJob[] }; }
+        if (!res.ok) return done({ id, ok: false, error: `HTTP ${res.status}`, jobs: [] });
+        return done({ id, ok: true, jobs: PARSERS[id](await res.json()) });
+      } catch { return done({ id, ok: false, error: 'could not connect', jobs: [] }); }
     }));
     const sourceReport = fetched.map((f) => ({ id: f.id, ok: f.ok, count: f.jobs.length, error: (f as any).error ?? null, ...CREDITS[f.id] }));
 
@@ -75,12 +104,14 @@ export class DiscoveryService {
       return !bad.some((w) => hay.includes(w));
     }).map((j) => ({ j, r: relevance(j, rel) })).filter((x) => x.r >= 1);
 
+    report(36, `Filtering: ${candidates.length} of ${fetched.reduce((n, f) => n + f.jobs.length, 0)} match your titles and skills`);
     const scored = candidates.map(({ j, r }) => {
       const skills = extractSkills(`${j.title} ${j.tags.join(' ')} ${j.description}`);
       const facts = { company: j.company, title: j.title, description: j.description, location: j.location, workMode: j.workMode, employmentType: j.employmentType, requiredSkills: skills, preferredSkills: [] as string[], experienceMin: yearsIn(j.description), salaryMax: j.salaryMax };
       return { j, r, facts, report: scoreMatch(profile as any, facts) };
     }).sort((a, b) => b.report.score - a.report.score || b.r - a.r).slice(0, dto.limit);
 
+    report(44, `Scored against your profile. Best keyword match: ${scored[0]?.report.score ?? 0}/100`);
     const now = new Date();
     const stored: { id: any; isNew: boolean; row: (typeof scored)[number] }[] = [];
     for (const row of scored) {
@@ -99,15 +130,17 @@ export class DiscoveryService {
       } else stored.push({ id: res.value._id, isNew, row });
     }
 
+    report(52, `Saved ${stored.length} openings (${stored.filter((x) => x.isNew).length} new)`);
     // Optional AI pass on the best few: reads the full posting for real skills, experience and apply email.
     let aiNote: string | null = null;
     const enriched = new Set<string>();
     if (dto.enrich && this.ai.name !== 'mock') {
       const model = await this.aiSettings.modelFor(userId);
-      const top = stored.slice(0, 8); let i = 0; let stop = false;
-      await Promise.all(Array.from({ length: 3 }, async () => {
+      const top = stored.slice(0, 5); let i = 0; let stop = false; // few calls: free-tier keys allow only a handful per minute
+      await Promise.all(Array.from({ length: 2 }, async () => {
         while (!stop && i < top.length) {
           const s = top[i++]; const { j } = s.row;
+          report(52 + Math.round((i / top.length) * 42), `AI is reading: ${j.title} · ${j.company}`);
           try {
             const x = await this.ai.extractJob({ kind: 'text', text: `Title: ${j.title}\nCompany: ${j.company}\nLocation: ${j.location ?? ''}\n\n${j.description}`.slice(0, 14000) }, { model });
             const facts = { ...s.row.facts, requiredSkills: x.requiredSkills.length ? x.requiredSkills : s.row.facts.requiredSkills, preferredSkills: x.preferredSkills, experienceMin: x.experienceMin ?? s.row.facts.experienceMin, experienceMax: x.experienceMax, workMode: x.workMode ?? s.row.facts.workMode, salaryMax: x.salaryMax ?? s.row.facts.salaryMax };
@@ -115,14 +148,16 @@ export class DiscoveryService {
             await this.jobs.updateOne({ _id: s.id }, { $set: { requiredSkills: facts.requiredSkills, preferredSkills: facts.preferredSkills, experienceMin: facts.experienceMin, experienceMax: facts.experienceMax, ...(facts.workMode && { workMode: facts.workMode }), ...(email && { applicationEmail: email }) } });
             s.row = { ...s.row, facts, report: scoreMatch(profile as any, facts), j: { ...j, applicationEmail: email ?? j.applicationEmail } };
             enriched.add(String(s.id));
+            report(52 + Math.round((i / top.length) * 42), `Understood ${j.company}: ${facts.requiredSkills.length} skills${email ? ', apply email found' : ''}, now scores ${s.row.report.score}`);
           } catch (e: any) {
-            if (/quota|rate limit|rejected|refused|not set/i.test(String(e?.message))) { stop = true; aiNote = String(e.message); }
+            if (/quota|rate limit|too many|rejected|refused|not set|no free/i.test(String(e?.response?.message ?? e?.message))) { stop = true; aiNote = String(e?.response?.message ?? e.message); }
           }
         }
       }));
     }
 
     stored.sort((a, b) => b.row.report.score - a.row.report.score);
+    report(97, 'Ranking the results');
     await this.matches.insertMany(stored.map((s) => ({ userId, jobId: s.id, careerProfileId: profile._id, score: s.row.report.score, recommendation: s.row.report.recommendation, report: s.row.report as any })), { ordered: false }).catch(() => undefined);
     await this.audit.record({ userId, actor, action: 'discovery.search', entityType: 'career_profile', entityId: String(profile._id), result: 'success', meta: { query: q, found: candidates.length, stored: stored.length, newJobs: stored.filter((s) => s.isNew).length } });
 

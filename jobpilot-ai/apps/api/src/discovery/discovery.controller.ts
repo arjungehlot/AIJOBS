@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { AuthUser, CurrentUser } from '../common/auth';
 import { ZodPipe } from '../common/zod.pipe';
 import { DiscoverDto, DiscoveryService } from './discovery.service';
@@ -7,5 +7,7 @@ import { DiscoverDto, DiscoveryService } from './discovery.service';
 export class DiscoveryController {
   constructor(private readonly svc: DiscoveryService) {}
   @Get('sources') sources() { return this.svc.sources(); }
+  @Post('start') start(@CurrentUser() u: AuthUser, @Body(new ZodPipe(DiscoverDto)) dto: any) { return this.svc.start(u.id, dto); }
+  @Get('status/:id') status(@CurrentUser() u: AuthUser, @Param('id') id: string, @Query('since') since?: string) { return this.svc.status(u.id, id, Math.max(0, Number(since) || 0)); }
   @Post('search') search(@CurrentUser() u: AuthUser, @Body(new ZodPipe(DiscoverDto)) dto: any) { return this.svc.search(u.id, dto); }
 }

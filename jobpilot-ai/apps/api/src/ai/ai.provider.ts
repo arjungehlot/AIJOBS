@@ -19,6 +19,8 @@ export interface AiProvider {
   parseResume(input: ResumeInput, opts?: AiOpts): Promise<ParsedResume>;
   /** Models the configured key can use. May be a built-in list when the provider cannot be asked. */
   listModels(): Promise<ModelInfo[]>;
+  /** Per-key state when several keys are configured (never the keys themselves). */
+  keyStatus?(): { label: string; tail: string; state: 'ready' | 'cooling' | 'invalid'; retryInSec: number | null }[];
   /** Tiny round trip used by "Test connection". */
   ping(opts?: AiOpts): Promise<{ ok: true; ms: number; model: string }>;
 }

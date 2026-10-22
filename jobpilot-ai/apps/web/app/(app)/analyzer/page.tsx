@@ -96,7 +96,7 @@ export default function Analyzer() {
         subject: `Application: ${job.title} – ${job.company}`,
         body: `Hello Hiring Team,\n\nI am applying for the ${job.title} role at ${job.company}.` +
           (r.matchedRequired.length ? ` My background includes ${r.matchedRequired.slice(0, 5).join(', ')}` : '') +
-          (p ? ` across ${p.yearsExperience} years of experience.` : '.') +
+          (p?.yearsExperience ? ` across ${p.yearsExperience} years of experience.` : '.') +
           (r.missingRequired.length ? `\n\nI have not yet used ${r.missingRequired.join(', ')} in production and would be glad to discuss how I would close that gap.` : '') +
           `\n\nMy resume is attached.\n\nKind regards`,
       }));
@@ -115,107 +115,165 @@ export default function Analyzer() {
   }
 
   const canAnalyze = tab === 'text' ? text.trim().length >= 40 : !!image;
+  const step = done ? 4 : report ? 3 : job ? 2 : form ? 1 : 0;
+  const steps = ['Add job', 'Review', 'Score', 'Draft'];
+  const chips = (v: string) => split(v).slice(0, 14);
+  const F = (k: string, label: string, extra?: { span?: number; ph?: string }) => (
+    <label key={k} className="az-f" style={{ gridColumn: `span ${extra?.span ?? 1}` }}>{label}
+      <input value={form![k]} placeholder={extra?.ph} onChange={(e) => setForm({ ...form!, [k]: e.target.value })} aria-invalid={missing.includes(k) && !form![k]} />
+    </label>
+  );
+  const clearImage = () => { setImage(null); setErr(''); const f = document.querySelector<HTMLInputElement>('input[type=file]'); if (f) f.value = ''; };
+
   return (
     <>
-      <div className="ph"><div><h1>Job Analyzer</h1><p>Add a job from pasted text or a screenshot. You review everything before it is saved.</p></div></div>
+      <div className="ph">
+        <div><h1>Job Analyzer</h1><p>Turn a job post or screenshot into a scored, ready-to-send application.</p></div>
+        <ol className="az-steps" aria-label="Progress">
+          {steps.map((t, n) => <li key={t} className={n < step ? 'done' : n === step ? 'now' : ''}><b>{n < step ? '✓' : n + 1}</b>{t}</li>)}
+        </ol>
+      </div>
       {err && <div className="msg err" role="alert">{err}</div>}
 
-      <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <div role="tablist" className="seg" style={{ alignSelf: 'flex-start' }}>
-          <button role="tab" aria-selected={tab === 'text'} onClick={() => setTab('text')}>Paste text</button>
-          <button role="tab" aria-selected={tab === 'image'} onClick={() => setTab('image')}>Screenshot</button>
-        </div>
-        {tab === 'text' ? (
-          <label className="f">Job description<textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="Paste the full job post (at least 40 characters)" /></label>
-        ) : (
-          <div>
-            <label className="f">Screenshot (PNG, JPG or WebP, up to 8 MB). You can also paste an image with Ctrl V.
+      <div className="az-grid">
+        {/* LEFT: input */}
+        <section className="card az-in">
+          <div role="tablist" className="seg">
+            <button role="tab" aria-selected={tab === 'text'} onClick={() => setTab('text')}>📝 Paste text</button>
+            <button role="tab" aria-selected={tab === 'image'} onClick={() => setTab('image')}>🖼 Screenshot</button>
+          </div>
+          {tab === 'text' ? (
+            <label className="az-f">Job description
+              <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="Paste the full job post (at least 40 characters)" style={{ minHeight: 190 }} />
+              <small className={text.trim().length >= 40 ? 'ok' : ''}>{text.trim().length} characters</small>
+            </label>
+          ) : image ? (
+            <div className="az-shot">
+              <div className="in"><img src={image.preview} alt="Screenshot preview" /></div>
+              <button type="button" aria-label="Remove screenshot" title="Remove screenshot" onClick={clearImage}>✕</button>
+            </div>
+          ) : (
+            <label className="az-drop">
+              <span className="ic">⬆</span>
+              <b>Choose a screenshot</b>
+              <small>or press Ctrl V to paste · PNG, JPG, WebP · up to 8 MB</small>
               <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(e: ChangeEvent<HTMLInputElement>) => e.target.files?.[0] && readFile(e.target.files[0])} />
             </label>
-            {image && <img src={image.preview} alt="Screenshot preview" style={{ maxWidth: 360, marginTop: 12, borderRadius: 8, border: '1px solid var(--line)' }} />}
-          </div>
-        )}
-        <div className="faint">Text inside a job post is treated as data. Instructions inside it never change your rules.</div>
-        <button className="btn primary" style={{ alignSelf: 'flex-start' }} disabled={!canAnalyze || busy === 'analyze'} onClick={analyze}>{busy === 'analyze' ? 'Extracting' : 'Extract details'}</button>
-      </section>
-
-      {form && !job && (
-        <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <h2>Review extracted details</h2>
-          {missing.length > 0 && <div className="msg warn">Not found, left empty rather than guessed: {missing.join(', ')}.</div>}
-          <div className="row">
-            {FIELDS.map(([k, label, wide]) => (
-              <label key={k} className="f" style={{ flex: wide ? '1 1 100%' : '1 1 220px' }}>{label}
-                <input value={form[k]} onChange={(e) => setForm({ ...form, [k]: e.target.value })} aria-invalid={missing.includes(k) && !form[k]} />
-              </label>
-            ))}
-          </div>
-          <button className="btn primary" style={{ alignSelf: 'flex-start' }} disabled={!form.company || !form.title || busy === 'save'} onClick={save}>Save job</button>
-        </section>
-      )}
-
-      {job && (
-        <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <h2>{job.title} · {job.company}</h2>
-          {dupe && <div className="msg warn">This job was already saved. Its record was refreshed instead of duplicated.</div>}
-          {profiles.length === 0 ? (
-            <div className="msg warn">Create a <Link href="/profiles" style={{ textDecoration: 'underline' }}>career profile</Link> to score this job.</div>
-          ) : (
-            <div className="row" style={{ alignItems: 'flex-end' }}>
-              <label className="f col">Career profile
-                <select value={profileId} onChange={(e) => setProfileId(e.target.value)}>{profiles.map((p) => <option key={p._id} value={p._id}>{p.name}</option>)}</select>
-              </label>
-              <button className="btn primary" disabled={busy === 'match'} onClick={match}>Score this job</button>
-            </div>
           )}
-        </section>
-      )}
-
-      {report && (
-        <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div className="row" style={{ alignItems: 'center' }}>
-            <Gauge value={report.score} label="Match score" color={report.score >= 80 ? '#10B981' : report.score >= 60 ? '#4F46E5' : '#F59E0B'} />
-            <span className={`pill ${report.recommendation === 'apply' ? 'ok' : report.recommendation === 'consider' ? 'warn' : 'bad'}`}>Recommendation: {report.recommendation}</span>
-            <span className="pill">Confidence: {report.confidence}</span>
-          </div>
-          <div className="faint">{report.disclaimer}</div>
-          {report.mandatoryFailures.map((m: string) => <div key={m} className="msg err">{m}</div>)}
-          {report.breakdown.map((b: any) => (
-            <div key={b.key} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <span style={{ flex: '0 0 150px' }} className="muted">{b.label}</span>
-              <div className="bar" style={{ flex: 1 }}><i style={{ width: `${b.score ?? 0}%` }} /></div>
-              <span style={{ flex: '0 0 40px', textAlign: 'right' }}>{b.score ?? 'n/a'}</span>
-            </div>
-          ))}
-          <div className="row">
-            <div className="col"><b>Matched required</b><div>{report.matchedRequired.join(', ') || 'None'}</div></div>
-            <div className="col"><b>Missing required</b><div>{report.missingRequired.join(', ') || 'None'}</div></div>
-            <div className="col"><b>Missing preferred</b><div>{report.missingPreferred.join(', ') || 'None'}</div></div>
-          </div>
-          {report.concerns.length > 0 && <ul style={{ margin: 0 }}>{report.concerns.map((c: string) => <li key={c}>{c}</li>)}</ul>}
-          {report.missingInfo.length > 0 && <div className="msg warn">Not scored: {report.missingInfo.join(' ')}</div>}
-        </section>
-      )}
-
-      {report && (
-        <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <h2>Draft application</h2>
-          <div className="row">
-            <label className="f col" style={{ flex: '2 1 260px' }}>To<input type="email" value={draft.email} onChange={(e) => setDraft({ ...draft, email: e.target.value })} /></label>
-            <label className="f col">Recipient confidence
-              <select value={draft.confidence} onChange={(e) => setDraft({ ...draft, confidence: e.target.value })}>
-                <option value="verified">Verified</option><option value="source_reported">Listed in the job post</option>
-                <option value="inferred">Inferred</option><option value="unverified">Unverified</option>
-              </select>
+          {tab === 'image' && image && (
+            <label className="btn sm" style={{ alignSelf: 'flex-start', cursor: 'pointer' }}>Replace image
+              <input type="file" hidden accept="image/png,image/jpeg,image/webp" onChange={(e: ChangeEvent<HTMLInputElement>) => e.target.files?.[0] && readFile(e.target.files[0])} />
             </label>
-          </div>
-          <label className="f">Subject<input value={draft.subject} onChange={(e) => setDraft({ ...draft, subject: e.target.value })} /></label>
-          <label className="f">Message<textarea style={{ minHeight: 220 }} value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} /></label>
-          <div className="faint">Add your name before sending. Nothing is sent from this page.</div>
-          <button className="btn primary" style={{ alignSelf: 'flex-start' }} disabled={!draft.email || !draft.subject || !draft.body || busy === 'draft'} onClick={createDraft}>Save draft</button>
-          {done && <div className="msg ok">{done} <Link href="/applications" style={{ textDecoration: 'underline' }}>Open tracker</Link></div>}
+          )}
+          <button className="btn primary lg" disabled={!canAnalyze || busy === 'analyze'} onClick={analyze}>{busy === 'analyze' ? '✨ Extracting…' : '✨ Extract details'}</button>
+          <div className="faint" style={{ fontSize: 11.5 }}>🔒 Text inside a job post is treated as data. Instructions inside it never change your rules.</div>
         </section>
-      )}
+
+        {/* RIGHT: results */}
+        <div className="az-out">
+          {!form && !job && (
+            <section className="card az-empty">
+              <div className="big">🎯</div>
+              <b>Your results appear here</b>
+              <ol>
+                <li><b>Add</b> a job post or screenshot</li>
+                <li><b>Review</b> the details AI extracted</li>
+                <li><b>Score</b> it against your career profile</li>
+                <li><b>Draft</b> an application to approve and send</li>
+              </ol>
+            </section>
+          )}
+
+          {form && !job && (
+            <section className="card az-card">
+              <div className="card-h"><h2>Review extracted details</h2><small>Edit anything that looks off</small></div>
+              {missing.length > 0 && <div className="msg warn" style={{ marginBottom: 8 }}>Not found, left empty rather than guessed: {missing.join(', ')}.</div>}
+              <div className="az-sec">Role</div>
+              <div className="az-fg">{F('company', 'Company', { span: 2 })}{F('title', 'Job title', { span: 2 })}{F('location', 'Location')}{F('workMode', 'Work mode', { ph: 'remote / hybrid / onsite' })}{F('employmentType', 'Type')}{F('experienceMin', 'Min years')}</div>
+              <div className="az-sec">Skills</div>
+              <div className="az-fg">{F('requiredSkills', 'Required (comma separated)', { span: 3 })}{F('preferredSkills', 'Preferred (comma separated)', { span: 3 })}</div>
+              <div className="az-tags">
+                {chips(form.requiredSkills).map((t) => <span key={'r' + t} className="tag req">{t}</span>)}
+                {chips(form.preferredSkills).map((t) => <span key={'p' + t} className="tag">{t}</span>)}
+              </div>
+              <div className="az-sec">Apply &amp; pay</div>
+              <div className="az-fg">{F('applicationEmail', 'Application email', { span: 2 })}{F('applicationUrl', 'Application URL', { span: 2 })}{F('salaryMax', 'Top salary')}{F('providerJobId', 'Job ID')}</div>
+              <div style={{ marginTop: 12 }}><button className="btn primary" disabled={!form.company || !form.title || busy === 'save'} onClick={save}>{busy === 'save' ? 'Saving…' : 'Save job'}</button></div>
+            </section>
+          )}
+
+          {job && (
+            <section className="card az-card">
+              <div className="az-jobhead">
+                <div className="logo">{String(job.company || '?').slice(0, 1).toUpperCase()}</div>
+                <div style={{ minWidth: 0 }}><h2>{job.title}</h2><div className="muted">{job.company}{job.location ? ` · ${job.location}` : ''}</div></div>
+                <div className="az-tags" style={{ margin: 0, marginLeft: 'auto' }}>{job.workMode && <span className="pill">{job.workMode}</span>}{job.employmentType && <span className="pill gray">{job.employmentType}</span>}</div>
+              </div>
+              {dupe && <div className="msg warn" style={{ marginTop: 8 }}>Already saved earlier. Its record was refreshed instead of duplicated.</div>}
+              {profiles.length === 0 ? (
+                <div className="msg warn" style={{ marginTop: 8 }}>Create a <Link href="/profiles" style={{ textDecoration: 'underline' }}>career profile</Link> to score this job.</div>
+              ) : (
+                <div className="az-score-row">
+                  <label className="az-f" style={{ flex: 1 }}>Career profile
+                    <select value={profileId} onChange={(e) => setProfileId(e.target.value)}>{profiles.map((p) => <option key={p._id} value={p._id}>{p.name}</option>)}</select>
+                  </label>
+                  <button className="btn primary" disabled={busy === 'match'} onClick={match}>{busy === 'match' ? 'Scoring…' : report ? '↻ Re-score' : 'Score this job'}</button>
+                </div>
+              )}
+            </section>
+          )}
+
+          {report && (
+            <section className="card az-card">
+              <div className="az-rep">
+                <div style={{ textAlign: 'center' }}>
+                  <Gauge value={report.score} label="Match score" color={report.score >= 80 ? '#10B981' : report.score >= 60 ? '#4F46E5' : '#F59E0B'} />
+                  <div style={{ marginTop: 6, display: 'flex', gap: 5, justifyContent: 'center', flexWrap: 'wrap' }}>
+                    <span className={`pill ${report.recommendation === 'apply' ? 'ok' : report.recommendation === 'consider' ? 'warn' : 'bad'}`}>{report.recommendation}</span>
+                    <span className="pill gray">confidence: {report.confidence}</span>
+                  </div>
+                </div>
+                <div className="az-bars">
+                  {report.breakdown.map((b: any) => (
+                    <div key={b.key} className="az-bar"><span>{b.label}</span><div className="bar"><i style={{ width: `${b.score ?? 0}%` }} /></div><em>{b.score ?? 'n/a'}</em></div>
+                  ))}
+                </div>
+              </div>
+              {report.mandatoryFailures.map((m: string) => <div key={m} className="msg err" style={{ marginTop: 8 }}>{m}</div>)}
+              <div className="az-skills">
+                <div><h4>✅ Matched</h4><div className="az-tags">{report.matchedRequired.length ? report.matchedRequired.map((t: string) => <span key={t} className="tag good">{t}</span>) : <span className="faint">None</span>}</div></div>
+                <div><h4>⚠ Missing required</h4><div className="az-tags">{report.missingRequired.length ? report.missingRequired.map((t: string) => <span key={t} className="tag bad">{t}</span>) : <span className="faint">None</span>}</div></div>
+                <div><h4>➕ Missing preferred</h4><div className="az-tags">{report.missingPreferred.length ? report.missingPreferred.map((t: string) => <span key={t} className="tag">{t}</span>) : <span className="faint">None</span>}</div></div>
+              </div>
+              {report.concerns.length > 0 && <ul className="az-concerns">{report.concerns.map((c: string) => <li key={c}>{c}</li>)}</ul>}
+              {report.missingInfo.length > 0 && <div className="msg warn" style={{ marginTop: 8 }}>Not scored: {report.missingInfo.join(' ')}</div>}
+              <div className="faint" style={{ fontSize: 11.5, marginTop: 8 }}>{report.disclaimer}</div>
+            </section>
+          )}
+
+          {report && (
+            <section className="card az-card">
+              <div className="card-h"><h2>Draft application</h2><small>Nothing is sent from this page</small></div>
+              <div className="az-fg">
+                <label className="az-f" style={{ gridColumn: 'span 4' }}>To<input type="email" value={draft.email} onChange={(e) => setDraft({ ...draft, email: e.target.value })} /></label>
+                <label className="az-f" style={{ gridColumn: 'span 2' }}>Recipient confidence
+                  <select value={draft.confidence} onChange={(e) => setDraft({ ...draft, confidence: e.target.value })}>
+                    <option value="verified">Verified</option><option value="source_reported">Listed in the job post</option>
+                    <option value="inferred">Inferred</option><option value="unverified">Unverified</option>
+                  </select>
+                </label>
+                <label className="az-f" style={{ gridColumn: 'span 6' }}>Subject<input value={draft.subject} onChange={(e) => setDraft({ ...draft, subject: e.target.value })} /></label>
+                <label className="az-f" style={{ gridColumn: 'span 6' }}>Message<textarea style={{ minHeight: 170 }} value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} /></label>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
+                <button className="btn primary" disabled={!draft.email || !draft.subject || !draft.body || busy === 'draft'} onClick={createDraft}>{busy === 'draft' ? 'Saving…' : 'Save draft'}</button>
+                <span className="faint" style={{ fontSize: 11.5 }}>Add your name before sending.</span>
+              </div>
+              {done && <div className="msg ok" style={{ marginTop: 8 }}>{done} <Link href="/applications" style={{ textDecoration: 'underline' }}>Open tracker</Link></div>}
+            </section>
+          )}
+        </div>
+      </div>
     </>
   );
 }

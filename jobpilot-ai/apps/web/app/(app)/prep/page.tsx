@@ -12,9 +12,10 @@ export default function Prep() {
   const n = Object.values(done).filter(Boolean).length;
   return (
     <>
-      <div className="ph"><div><h1>Interview prep</h1><p>Questions come from a fixed bank matched to the job’s skills and your known gaps. It is a practice list, not a prediction of what you will be asked.</p></div></div>
+      <div className="ph"><div><h1>Interview Prep</h1><p>Questions come from a fixed bank matched to the job’s skills and your known gaps. It is a practice list, not a prediction of what you will be asked.</p></div></div>
       {err && <div className="msg err" role="alert">{err}</div>}
       <section className="card"><label className="f">Job<select value={id} onChange={(e) => setId(e.target.value)}><option value="">Choose a saved job…</option>{jobs.map((j) => <option key={j._id} value={j._id}>{j.title} · {j.company}</option>)}</select></label></section>
+      {!kit && <section className="card pg-empty"><div className="big">🎤</div><b>Pick a saved job to get your practice kit</b><span>Technical questions, behavioral prompts, gaps to address and a STAR frame.</span></section>}
       {kit && (
         <div className="grid">
           <div className="s7 stack">

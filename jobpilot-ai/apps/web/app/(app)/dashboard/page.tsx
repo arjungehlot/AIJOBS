@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { BarChart, Donut, Funnel, Legend, PALETTE, Sparkline } from '@/components/charts';
 import { Icon, Pill } from '@/components/ui';
 import { api, errText } from '@/lib/api';
-import { sampleOverview, sampleTrends } from '@/lib/sample';
+import type { sampleOverview, sampleTrends } from '@/lib/sample';
 
 type Overview = ReturnType<typeof sampleOverview>;
 type Trends = ReturnType<typeof sampleTrends>;
@@ -19,7 +19,6 @@ const short = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString(undefi
 export default function Dashboard() {
   const [real, setReal] = useState<{ o: Overview; t: Trends } | null>(null);
   const [recent, setRecent] = useState<any[]>([]);
-  const [sample, setSample] = useState(false);
   const [err, setErr] = useState('');
 
   useEffect(() => {
@@ -31,10 +30,10 @@ export default function Dashboard() {
   if (err) return <div className="msg err" role="alert">{err}</div>;
   if (!real) return <div className="muted">Loading</div>;
 
-  const o = sample ? sampleOverview() : real.o;
-  const t = sample ? sampleTrends() : real.t;
+  const o = real.o;
+  const t = real.t;
   const k = o.kpis;
-  const empty = !sample && k.jobsDiscovered === 0;
+  const empty = k.jobsDiscovered === 0;
   const labels = t.days.map(short);
   const statusParts = Object.entries(o.byStatus).map(([s, v]) => ({ label: (STATUS_COLORS[s] ?? [s, PALETTE[6]])[0], value: v as number, color: (STATUS_COLORS[s] ?? [s, PALETTE[6]])[1] }));
   const totalApps = statusParts.reduce((a, p) => a + p.value, 0);
@@ -47,7 +46,7 @@ export default function Dashboard() {
     { l: 'Response rate', v: k.responseRate === null ? '–' : `${k.responseRate}%`, icon: 'trend', c: 'c-rose', sub: k.responseRate === null ? 'No sends yet' : 'replies ÷ sent' },
   ];
   const steps = [
-    ['Create a career profile', k.jobsDiscovered > 0 || sample, '/profiles'],
+    ['Create a career profile', k.jobsDiscovered > 0, '/profiles'],
     ['Analyze your first job', k.jobsDiscovered > 0, '/analyzer'],
     ['Score a job against a profile', k.jobsAnalyzed > 0, '/analyzer'],
     ['Save an application draft', totalApps > 0, '/analyzer'],
@@ -57,12 +56,9 @@ export default function Dashboard() {
   return (
     <>
       <div className="ph">
-        <div><h1>Overview</h1><p>Everything below is computed from your stored records.</p></div>
-        <div className="row">
-          <button className="btn sm" onClick={() => setSample(!sample)} aria-pressed={sample}><Icon name="spark" size={13} />{sample ? 'Show my data' : 'Preview with sample data'}</button>
-        </div>
+        <div><h1>Overview</h1><p>Your job search at a glance, computed from your stored records.</p></div>
+
       </div>
-      {sample && <div className="sample" role="status"><Icon name="spark" size={14} />Sample data for preview only. None of these numbers are yours.</div>}
       {empty && (
         <div className="card" style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap', background: 'linear-gradient(90deg,#EEF2FF,#F0F9FF)' }}>
           <div style={{ flex: '1 1 300px' }}><h2 style={{ fontSize: 15 }}>Welcome. Let’s find your first match.</h2><p className="muted">Create a profile, then analyze a job from a screenshot or pasted text. Charts fill in as you go.</p></div>
@@ -70,12 +66,12 @@ export default function Dashboard() {
         </div>
       )}
 
-      <section className="grid">
+      <section className="kpi-row">
         {KPIS.map((x) => (
-          <div key={x.l} className="card kpi s2">
-            {x.trend && <Sparkline data={x.trend} color={x.color} />}
-            <span className={`chip ${x.c}`}><Icon name={x.icon} size={15} /></span>
-            <span className="v">{x.v}</span><span className="l">{x.l}</span><span className="sub">{x.sub ?? '14-day trend'}</span>
+          <div key={x.l} className={`card kpi2 ${x.c.replace("c-", "k-")}`}>
+            <span className="chip"><Icon name={x.icon} size={16} /></span>
+            <div className="t"><b>{x.v}</b><span>{x.l}</span>{x.sub && <small>{x.sub}</small>}</div>
+            {x.trend && <Sparkline data={x.trend} color={x.color} w={46} h={18} />}
           </div>
         ))}
       </section>
@@ -83,11 +79,11 @@ export default function Dashboard() {
       <section className="grid">
         <div className="card s8">
           <div className="card-h"><h2>Activity, last 14 days</h2><Legend items={[{ label: 'Jobs found', color: PALETTE[1] }, { label: 'Applications sent', color: PALETTE[0] }]} /></div>
-          <BarChart labels={labels} series={[{ name: 'Jobs found', color: PALETTE[1], values: t.discovered }, { name: 'Applications sent', color: PALETTE[0], values: t.sent }]} />
+          <BarChart height={150} labels={labels} series={[{ name: 'Jobs found', color: PALETTE[1], values: t.discovered }, { name: 'Applications sent', color: PALETTE[0], values: t.sent }]} />
         </div>
         <div className="card s4">
           <div className="card-h"><h2>Applications by status</h2></div>
-          {totalApps === 0 ? <div className="empty">No applications yet.</div> : (
+          {totalApps === 0 ? <div className="pg-empty sm"><div className="big">📊</div><span>No applications yet</span><Link href="/analyzer" className="btn sm">Analyze a job</Link></div> : (
             <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
               <Donut parts={statusParts} center={String(totalApps)} sub="applications" />
               <div style={{ flex: 1, minWidth: 120 }}><Legend items={statusParts.map((p) => ({ label: p.label, color: p.color, value: p.value }))} /></div>
@@ -103,11 +99,12 @@ export default function Dashboard() {
         </div>
         <div className="card s4">
           <div className="card-h"><h2>Match score distribution</h2><small>latest score per job</small></div>
-          {t.scoreBuckets.every((b) => b.count === 0) ? <div className="empty">Score a job to see the spread.</div> :
-            <BarChart height={170} width={360} labels={t.scoreBuckets.map((b) => b.label)} series={[{ name: 'Jobs', color: PALETTE[4], values: t.scoreBuckets.map((b) => b.count) }]} />}
+          {t.scoreBuckets.every((b) => b.count === 0) ? <div className="pg-empty sm"><div className="big">🎯</div><span>Score a job to see the spread</span></div> :
+            <BarChart height={150} width={360} labels={t.scoreBuckets.map((b) => b.label)} series={[{ name: 'Jobs', color: PALETTE[4], values: t.scoreBuckets.map((b) => b.count) }]} />}
         </div>
         <div className="card s3">
           <div className="card-h"><h2>Getting started</h2><small>{steps.filter((s) => s[1]).length}/{steps.length}</small></div>
+          <div className="bar" style={{ marginBottom: 6 }}><i style={{ width: `${(steps.filter((s) => s[1]).length / steps.length) * 100}%`, background: 'linear-gradient(90deg,#10B981,#34D399)' }} /></div>
           <ul className="steps">
             {steps.map(([label, done, href]) => (
               <li key={label}><span className={`dot ${done ? 'done' : ''}`}>{done && <Icon name="check" size={10} />}</span>
@@ -119,11 +116,11 @@ export default function Dashboard() {
 
       <section className="card">
         <div className="card-h"><h2>Recent applications</h2><Link href="/applications" className="btn sm">View all</Link></div>
-        {sample ? <div className="empty">Sample mode hides your real records.</div> : recent.length === 0 ? <div className="empty">Nothing here yet.</div> : (
+        {recent.length === 0 ? <div className="pg-empty sm"><div className="big">📭</div><span>Nothing here yet</span></div> : (
           <div className="scroll"><table>
             <thead><tr><th>Job</th><th>Recipient</th><th>Status</th><th>Score</th></tr></thead>
             <tbody>{recent.map((a) => (
-              <tr key={a._id}><td><b>{a.jobId?.title}</b> <span className="faint">· {a.jobId?.company}</span></td><td>{a.recipient.email}</td>
+              <tr key={a._id}><td><div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><div className="pg-av sm">{String(a.jobId?.company || '?')[0].toUpperCase()}</div><div><b>{a.jobId?.title}</b><div className="faint">{a.jobId?.company}</div></div></div></td><td>{a.recipient.email}</td>
                 <td><Pill tone={a.status === 'applied' ? 'ok' : a.status.includes('fail') ? 'bad' : 'gray'}>{a.status.replace('_', ' ')}</Pill></td><td>{a.matchScore ?? '–'}</td></tr>
             ))}</tbody>
           </table></div>

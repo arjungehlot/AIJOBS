@@ -29,29 +29,29 @@ export default function Contacts() {
 
   return (
     <>
-      <div className="ph"><div><h1>HR contacts</h1><p>Every address is stored with how you know it. Unverified addresses can never be used for sending without your explicit confirmation.</p></div>
+      <div className="ph"><div><h1>HR contacts</h1><p>Every address is stored with how you know it. Unverified addresses need your confirmation before sending.</p></div>
         <div className="seg" role="tablist"><button role="tab" aria-selected={tab === 'contacts'} onClick={() => setTab('contacts')}>Contacts</button><button role="tab" aria-selected={tab === 'companies'} onClick={() => setTab('companies')}>Companies</button></div></div>
       {err && <div className="msg err" role="alert">{err}</div>}
       {tab === 'contacts' ? (
-        <div className="grid">
-          <form className="card s4 stack" onSubmit={add}>
-            <h2>Add contact</h2>
-            <label className="f">Name<input name="name" required /></label>
-            <label className="f">Company<input name="company" required /></label>
-            <label className="f">Email<input name="email" type="email" /></label>
-            <label className="f">Title<input name="title" placeholder="Talent Acquisition Lead" /></label>
-            <label className="f">How do you know this address?
+        <div className="pg-two">
+          <form className="card pg-form" onSubmit={add}>
+            <div className="pg-h"><span className="ic" style={{ background: 'linear-gradient(135deg,#34D399,#059669)' }}>＋</span><h2>Add contact</h2></div>
+            <div className="pg-2"><label className="az-f">Name<input name="name" required /></label>
+            <label className="az-f">Company<input name="company" required /></label></div>
+            <label className="az-f">Email<input name="email" type="email" placeholder="hr@company.com" /></label>
+            <label className="az-f">Title<input name="title" placeholder="Talent Acquisition Lead" /></label>
+            <label className="az-f">How do you know this address?
               <select name="verification" defaultValue="unverified"><option value="verified">I confirmed it works</option><option value="source_reported">It is in the job post / company site</option><option value="inferred">I guessed it from a pattern</option><option value="unverified">Not sure</option></select></label>
-            <label className="f">Notes<input name="notes" /></label>
+            <label className="az-f">Notes<input name="notes" /></label>
             <button className="btn primary">Save contact</button>
           </form>
-          <section className="card s8 scroll">
+          <section className="card scroll" style={{ minWidth: 0 }}>
             <div className="card-h"><h2>Contacts</h2><label style={{ position: 'relative' }}><span className="sr" style={{ position: 'absolute', left: -9999 }}>Search</span><input placeholder="Search name, email, company" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 230 }} /></label></div>
-            {!list ? <div className="muted">Loading</div> : list.length === 0 ? <div className="empty">No contacts yet.</div> : (
+            {!list ? <div className="muted">Loading</div> : list.length === 0 ? <div className="pg-empty"><div className="big">👥</div><b>No contacts yet</b><span>Add an HR contact on the left.</span></div> : (
               <table><thead><tr><th>Person</th><th>Company</th><th>Address</th><th>Trust</th><th /></tr></thead><tbody>
                 {list.map((c) => (
                   <tr key={c._id} style={c.suppressed ? { opacity: .55 } : undefined}>
-                    <td><b>{c.name}</b><div className="faint">{c.title}</div></td><td>{c.company}</td><td>{c.email ?? <span className="faint">none</span>}</td>
+                    <td><div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><div className="pg-av">{String(c.name || '?')[0].toUpperCase()}</div><div><b>{c.name}</b><div className="faint">{c.title}</div></div></div></td><td>{c.company}</td><td>{c.email ?? <span className="faint">none</span>}</td>
                     <td title={V[c.verification].tip}><span className={`pill ${V[c.verification].tone}`}>{c.verification.replace('_', ' ')}</span><div className="bar" style={{ marginTop: 4, width: 70 }}><i style={{ width: `${c.confidence}%` }} /></div></td>
                     <td style={{ whiteSpace: 'nowrap' }}>
                       <button className="btn sm" onClick={() => run(api(`/contacts/${c._id}/suppress`, { body: { suppressed: !c.suppressed } }))}>{c.suppressed ? 'Unblock' : 'Do not contact'}</button>{' '}

@@ -36,6 +36,17 @@ export default function AiSettings() {
       </section>
       {test && <div className="msg ok">Works. {test.model} answered in {test.ms} ms.</div>}
 
+      {s.configured && s.keys?.length > 1 && (
+        <section className="card" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <b>API keys</b><span className="faint">{s.keys.filter((k: any) => k.state === 'ready').length} of {s.keys.length} ready · switches to the next key automatically when one hits its limit</span>
+          {s.keys.map((k: any) => (
+            <span key={k.label} style={{ padding: "3px 10px", borderRadius: 999, fontSize: 12, fontWeight: 600, background: k.state === 'ready' ? '#10B981' : k.state === 'cooling' ? '#F59E0B' : '#EF4444', color: '#fff' }}>
+              {k.label} …{k.tail} · {k.state === 'cooling' ? `resting ${Math.ceil((k.retryInSec ?? 0) / 60)}m` : k.state}
+            </span>
+          ))}
+        </section>
+      )}
+
       {s.configured && (
         <section className="card stack">
           <div className="card-h"><h2>Model</h2><input aria-label="Filter models" placeholder="Filter…" style={{ maxWidth: 200, height: 30 }} value={q} onChange={(e) => setQ(e.target.value)} /></div>

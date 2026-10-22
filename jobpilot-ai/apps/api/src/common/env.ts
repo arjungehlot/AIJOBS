@@ -1,11 +1,12 @@
 import { config } from 'dotenv';
 import { resolve } from 'node:path';
+import { parseKeys } from '../ai/key-pool';
 
 // The API is started from apps/api, but a single .env at the repo root is the normal layout.
 // Earlier files win, so apps/api/.env can override the root one.
-config({ path: resolve(process.cwd(), '.env') });
-config({ path: resolve(process.cwd(), '../../.env') });
-config({ path: resolve(__dirname, '../../../../.env') });
+const ENV_FILES = [resolve(process.cwd(), '.env'), resolve(process.cwd(), '../../.env'), resolve(__dirname, '../../../../.env')];
+const FOUND_ENV_FILES: string[] = [];
+for (const f of ENV_FILES) if (config({ path: f }).parsed) FOUND_ENV_FILES.push(f);
 
 function req(name: string): string {
   const v = process.env[name];
@@ -23,10 +24,16 @@ export const env = {
     return s;
   },
   get tokenKey() { return req('TOKEN_ENCRYPTION_KEY'); },
-  get geminiKey() { return (process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY ?? '').trim(); },
-  get geminiDefaultModel() { return (process.env.GEMINI_MODEL ?? 'gemini-2.5-flash').trim(); },
-  /** AI_PROVIDER wins; otherwise Gemini is used automatically when a key is present. */
-  get aiProvider() { return process.env.AI_PROVIDER ?? (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY ? 'gemini' : 'mock'); },
+  /** One or many keys: GEMINI_API_KEY=key1,key2,key3 (also GEMINI_API_KEYS and GOOGLE_API_KEY). */
+  get geminiKeys() { return parseKeys(process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEYS, process.env.GOOGLE_API_KEY); },
+  get geminiKey() { return this.geminiKeys[0] ?? ''; },
+  get geminiDefaultModel() { return (process.env.GEMINI_MODEL ?? 'gemini-flash-latest').trim(); },
+  /**
+   * A Gemini key switches AI on. The old .env.example shipped AI_PROVIDER=mock, so "mock" must not override a key;
+   * use AI_PROVIDER=off to force the offline demo even when a key exists.
+   */
+  get aiProvider() { return process.env.AI_PROVIDER === 'off' ? 'mock' : (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) ? 'gemini' : 'mock'; },
+  get envFilesLoaded() { return FOUND_ENV_FILES; },
   get autoRunEnabled() { return (process.env.AGENT_AUTORUN ?? 'true') !== 'false'; },
   get googleClientId() { return process.env.GOOGLE_CLIENT_ID ?? ''; },
   get googleClientSecret() { return process.env.GOOGLE_CLIENT_SECRET ?? ''; },

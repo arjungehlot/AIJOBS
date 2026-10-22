@@ -110,9 +110,9 @@ export function Funnel({ stages }: { stages: { stage: string; count: number }[] 
         const prev = i ? stages[i - 1].count : 0;
         const conv = i && prev ? Math.round((s.count / prev) * 100) : null;
         return (
-          <div key={s.stage} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '3.5px 0' }}>
-            <span style={{ flex: '0 0 84px', color: 'var(--ink-2)', fontWeight: 500 }}>{s.stage}</span>
-            <div style={{ flex: 1, height: 20, background: 'var(--line-2)', borderRadius: 6, overflow: 'hidden' }}>
+          <div key={s.stage} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '2px 0' }}>
+            <span style={{ flex: '0 0 76px', fontSize: 12.5, color: 'var(--ink-2)', fontWeight: 500 }}>{s.stage}</span>
+            <div style={{ flex: 1, height: 15, background: 'var(--line-2)', borderRadius: 6, overflow: 'hidden' }}>
               <div style={{ width: `${Math.max(s.count ? 3 : 0, (s.count / max) * 100)}%`, height: '100%', borderRadius: 6, background: `linear-gradient(90deg, ${PALETTE[0]}, ${PALETTE[1]})`, opacity: 1 - i * 0.07 }} />
             </div>
             <b style={{ flex: '0 0 32px', textAlign: 'right' }}>{s.count}</b>

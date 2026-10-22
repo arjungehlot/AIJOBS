@@ -3,16 +3,20 @@ import { z } from 'zod';
 import { env } from '../common/env';
 import { AiOpts, AiProvider, DraftContext, JobInput, ModelInfo, ParsedResume, ResumeInput, UNTRUSTED_NOTICE } from './ai.provider';
 import { ExtractedJob, ExtractedJobSchema } from './extraction.schema';
+import { KeyPool } from './key-pool';
+import { parseQuotaError, quotaMessage, QuotaInfo } from './gemini-errors';
 
 const BASE = process.env.GEMINI_BASE_URL ?? 'https://generativelanguage.googleapis.com/v1beta';
 const FALLBACK_MODELS: ModelInfo[] = [
+  { id: 'gemini-flash-latest', label: 'Gemini Flash (latest)', description: 'Always points at the current Flash model. Recommended.' },
   { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', description: 'Fast and inexpensive. Good default.' },
   { id: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite', description: 'Fastest and cheapest.' },
   { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', description: 'Strongest reasoning, slower.' },
   { id: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
 ];
-// Not text-generation models we want in a picker.
-const SKIP = /(embedding|aqa|tts|image|imagen|veo|live|audio|robotics|computer-use|learnlm|gemma|vision|native)/i;
+// Only plain text models we want in a picker: gemini-<version>-(flash|pro)[-lite] and the "-latest" aliases.
+// This drops image, audio, transcription and other special-purpose models that cannot write JSON text.
+const TEXT_MODEL = /^gemini-(\d+(\.\d+)?-(flash|pro)(-lite)?|(flash|pro)(-lite)?-latest)$/i;
 
 const FIELDS = `Return one JSON object with keys: company, title, description, location, workMode (remote|hybrid|onsite),
 employmentType, requiredSkills[], preferredSkills[], experienceMin, experienceMax, salaryMin, salaryMax, currency,
@@ -35,6 +39,8 @@ type Part = { text: string } | { inlineData: { mimeType: string; data: string } 
 @Injectable()
 export class GeminiProvider implements AiProvider {
   readonly name = 'gemini';
+  private pool = new KeyPool(env.geminiKeys);
+  keyStatus() { return this.pool.status(); }
 
   async extractJob(input: JobInput, opts?: AiOpts): Promise<ExtractedJob> {
     const parts: Part[] = input.kind === 'text'
@@ -72,16 +78,20 @@ export class GeminiProvider implements AiProvider {
   }
 
   async listModels(): Promise<ModelInfo[]> {
-    const key = this.key();
+    this.key();
     try {
-      const res = await fetch(`${BASE}/models?pageSize=200`, { headers: { 'x-goog-api-key': key }, signal: AbortSignal.timeout(15_000) });
-      if (!res.ok) return FALLBACK_MODELS;
+      let res: Response | undefined;
+      for (const key of this.pool.available().length ? this.pool.available() : this.pool.keys) { // first key that answers
+        res = await fetch(`${BASE}/models?pageSize=200`, { headers: { 'x-goog-api-key': key }, signal: AbortSignal.timeout(15_000) });
+        if (res.ok) break;
+      }
+      if (!res?.ok) return FALLBACK_MODELS;
       const j: any = await res.json();
       const out: ModelInfo[] = (j.models ?? [])
-        .filter((m: any) => String(m.name).startsWith('models/gemini') && (m.supportedGenerationMethods ?? []).includes('generateContent') && !SKIP.test(m.name))
+        .filter((m: any) => (m.supportedGenerationMethods ?? []).includes('generateContent') && TEXT_MODEL.test(String(m.name).replace('models/', '')))
         .map((m: any) => ({ id: String(m.name).replace('models/', ''), label: m.displayName || String(m.name).replace('models/', ''), description: typeof m.description === 'string' ? m.description.slice(0, 160) : undefined }));
-      // Stable ids first (no "-preview"/"-exp"/dated suffixes), newest version first.
-      const rank = (id: string) => (/preview|exp|\d{2}-\d{2}|\d{3}$|latest/.test(id) ? 1 : 0);
+      // "-latest" aliases first (they never get retired), then newest version first.
+      const rank = (id: string) => (/latest$/.test(id) ? 0 : 1);
       out.sort((a, b) => rank(a.id) - rank(b.id) || b.id.localeCompare(a.id, undefined, { numeric: true }));
       return out.length ? out : FALLBACK_MODELS;
     } catch { return FALLBACK_MODELS; }
@@ -95,13 +105,12 @@ export class GeminiProvider implements AiProvider {
 
   // ---- internals ----
   private key() {
-    const k = env.geminiKey;
-    if (!k) throw new ServiceUnavailableException('GEMINI_API_KEY is not set on the server');
-    return k;
+    if (!this.pool.size) throw new ServiceUnavailableException('GEMINI_API_KEY is not set on the server');
+    return this.pool.keys[0];
   }
 
   private async generate(system: string, parts: Part[], opts: (AiOpts & { temperature?: number }) | undefined, promptVersion: string): Promise<unknown> {
-    const key = this.key();
+    this.key();
     const model = (opts?.model || env.geminiDefaultModel).replace(/^models\//, '');
     if (!/^[a-z0-9][a-z0-9._-]{2,80}$/i.test(model)) throw new BadRequestException('Invalid model name');
     const body = JSON.stringify({
@@ -110,27 +119,50 @@ export class GeminiProvider implements AiProvider {
       generationConfig: { temperature: opts?.temperature ?? 0.1, responseMimeType: 'application/json' },
     });
     const started = Date.now();
-    let res: Response | undefined;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        res = await fetch(`${BASE}/models/${model}:generateContent`, {
-          method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': key }, body, signal: AbortSignal.timeout(90_000),
-        });
-      } catch { throw new ServiceUnavailableException('Could not reach Gemini. Check the server internet connection.'); }
-      if (res.status !== 429 && res.status < 500) break;
-      await new Promise((r) => setTimeout(r, 800 * 2 ** attempt)); // brief backoff on rate limit / overload
+    // Models to try, and for each one every usable key in turn. A limited key is parked and the next key takes over silently.
+    const candidates = [model, ...(/flash-lite/.test(model) ? [] : ['gemini-flash-lite-latest'])];
+    let res: Response | undefined; let used = model; let quota: QuotaInfo | undefined; let triedFallback = false; let ok = false;
+    outer: for (const [mi, m] of candidates.entries()) {
+      used = m; triedFallback = mi > 0;
+      // First model: keys that are not cooling. Fallback model has its own quota, so try every key that is not invalid.
+      const keys = mi === 0 ? this.pool.available() : this.pool.notInvalid();
+      for (const key of keys) {
+        let next = false;
+        for (let attempt = 0; attempt < 2 && !next; attempt++) {
+          try {
+            res = await fetch(`${BASE}/models/${m}:generateContent`, {
+              method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': key }, body, signal: AbortSignal.timeout(90_000),
+            });
+          } catch { throw new ServiceUnavailableException('Could not reach Gemini. Check the server internet connection.'); }
+          if (res.ok) { this.pool.used(key); ok = true; break outer; }
+          if (res.status === 429) {
+            quota = parseQuotaError(await res.clone().json().catch(() => null));
+            if (mi === 0) this.pool.limited(key, quota.scope === 'day' || quota.noFreeQuota ? 30 * 60 : Math.max(quota.retryAfterSec ?? 60, 20));
+            next = true; continue; // silently move to the next key
+          }
+          if (res.status === 400 || res.status === 401 || res.status === 403) {
+            const j: any = await res.clone().json().catch(() => null);
+            if (/api key|permission|denied|disabled|expired/i.test(String(j?.error?.message ?? ''))) { this.pool.invalid(key); next = true; continue; }
+            break outer; // some other client error: report it
+          }
+          if (res.status >= 500 && attempt === 0) { await new Promise((r) => setTimeout(r, 1500)); continue; }
+          break outer; // 404 / persistent 5xx: report it
+        }
+      }
     }
+    if (!res) throw new ServiceUnavailableException('No usable Gemini API key. Check GEMINI_API_KEY.');
+    if (!ok && this.pool.allInvalid()) throw new ServiceUnavailableException('Gemini rejected every API key in GEMINI_API_KEY. Check the keys.');
     if (!res!.ok) {
+      if (res!.status === 429) throw new ServiceUnavailableException(quotaMessage(model, quota ?? parseQuotaError(null), triedFallback));
       const msg = await res!.json().then((j: any) => String(j?.error?.message ?? '')).catch(() => '');
       if (res!.status === 400 && /api key/i.test(msg)) throw new ServiceUnavailableException('Gemini rejected the API key. Check GEMINI_API_KEY.');
       if (res!.status === 401 || res!.status === 403) throw new ServiceUnavailableException('Gemini refused access for this key (check the key and that the Generative Language API is enabled).');
-      if (res!.status === 404) throw new BadRequestException(`Model "${model}" is not available for this key. Pick another in Settings -> AI.`);
-      if (res!.status === 429) throw new ServiceUnavailableException('Gemini rate limit or free-tier quota reached. Wait a minute or pick another model.');
+      if (res!.status === 404) throw new BadRequestException(`Model "${used}" is not available for this key. Pick another in Settings -> AI.`);
       throw new BadGatewayException(`Gemini error ${res!.status}`);
     }
     const data: any = await res!.json();
     // Metadata only. Prompts, resumes and keys are never logged.
-    console.log(JSON.stringify({ evt: 'ai_call', provider: 'gemini', promptVersion, model, ms: Date.now() - started, tokens: data.usageMetadata?.totalTokenCount }));
+    console.log(JSON.stringify({ evt: 'ai_call', provider: 'gemini', promptVersion, model: used, ms: Date.now() - started, tokens: data.usageMetadata?.totalTokenCount }));
     const text = (data?.candidates?.[0]?.content?.parts ?? []).map((p: any) => p?.text ?? '').join('').trim();
     if (!text) throw new BadGatewayException(data?.promptFeedback?.blockReason ? 'Gemini blocked this content.' : 'Gemini returned no content.');
     try { return JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/g, '')); } catch { throw new BadGatewayException('Gemini returned invalid JSON. Try again.'); }

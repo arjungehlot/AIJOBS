@@ -18,11 +18,24 @@ export class AiSettingsService {
     private readonly audit: AuditService,
   ) {}
 
-  /** The model this user's AI calls use: their choice, else the server default. */
+  /**
+   * The model this user's AI calls use: their saved choice, else the server default, but only if Google still offers it to this key.
+   * Models get retired; when the wanted one is gone we fall back to the best available Flash model instead of failing.
+   */
   async modelFor(userId: string): Promise<string | undefined> {
     if (this.ai.name === 'mock') return undefined;
     const s = await this.settings.findOne({ userId }).lean();
-    return s?.model || env.geminiDefaultModel;
+    return this.resolve(s?.model);
+  }
+
+  private async resolve(saved?: string): Promise<string> {
+    const list = await this.catalog().catch(() => []);
+    const ids = new Set(list.map((m) => m.id));
+    if (!ids.size) return saved || env.geminiDefaultModel;
+    if (saved && ids.has(saved)) return saved;
+    if (ids.has(env.geminiDefaultModel)) return env.geminiDefaultModel;
+    const flash = list.map((m) => m.id).filter((id) => /^gemini-\d+(\.\d+)?-flash$/.test(id)).sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+    return flash[0] ?? list[0].id;
   }
 
   private async catalog() {
@@ -36,9 +49,13 @@ export class AiSettingsService {
     const [list, chosen] = await Promise.all([this.catalog().catch(() => []), this.settings.findOne({ userId }).lean()]);
     return {
       provider: this.ai.name, configured, keyPresent: this.ai.name === 'gemini' ? !!env.geminiKey : false,
-      defaultModel: configured ? env.geminiDefaultModel : null, model: configured ? chosen?.model || env.geminiDefaultModel : null,
+      keys: this.ai.keyStatus?.() ?? [],
+      defaultModel: configured ? await this.resolve(undefined) : null, model: configured ? await this.resolve(chosen?.model) : null,
+      savedModelUnavailable: configured && !!chosen?.model && chosen.model !== (await this.resolve(chosen.model)),
       models: list,
-      note: configured ? null : 'AI is off (offline demo mode). Add GEMINI_API_KEY to the server .env file and restart the API.',
+      note: configured ? null : process.env.AI_PROVIDER === 'off'
+        ? 'AI is switched off by AI_PROVIDER=off in the server .env. Remove that line and restart the API.'
+        : `The server did not find GEMINI_API_KEY. Env files it read: ${env.envFilesLoaded.length ? env.envFilesLoaded.join(' | ') : 'none (no .env found)'}. Put GEMINI_API_KEY=your-key in one of them, save, and fully restart the API (stop it and run npm run dev again).`,
     };
   }
 

@@ -26,11 +26,11 @@ export default function AdminOverview() {
   return (
     <>
       <div className="ph"><div><h1>Admin overview</h1><p>Platform-wide numbers read straight from the database. Only the super admin can see this.</p></div></div>
-      <div className="grid">
+      <div className="kpi-row" style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}>
         {KPIS.map((x) => (
-          <div key={x.l} className="card kpi s3">
-            <span className={`kpi-ic ${x.c}`} style={{ width: 30, height: 30, borderRadius: 9, display: 'grid', placeItems: 'center' }}><Icon name={x.ic} size={15} /></span>
-            <span className="faint">{x.l}</span><b style={{ fontSize: 24 }}>{x.v}</b><span className="faint">{x.s}</span>
+          <div key={x.l} className={`card kpi2 ${x.c.replace('c-', 'k-')}`}>
+            <span className="chip"><Icon name={x.ic} size={16} /></span>
+            <div className="t"><b>{x.v}</b><span>{x.l}</span><small>{x.s}</small></div>
           </div>))}
       </div>
       <div className="grid">
