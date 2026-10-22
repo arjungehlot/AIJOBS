@@ -1,4 +1,21 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+import path from 'node:path';
+import fs from 'node:fs';
+
+// Check both local and workspace root for .env
+const envPaths = [
+  path.resolve(process.cwd(), '.env'),
+  path.resolve(process.cwd(), '../../.env'),
+  path.resolve(__dirname, '../../../.env'),
+  path.resolve(__dirname, '../../../../.env'),
+];
+for (const envPath of envPaths) {
+  if (fs.existsSync(envPath)) {
+    dotenv.config({ path: envPath });
+  }
+}
+dotenv.config();
+
 
 function req(name: string): string {
   const v = process.env[name];
