@@ -107,7 +107,7 @@ export class GmailService {
     let access: string;
     try { access = await this.accessToken(userId, acct); }
     catch { throw new MailRejectedError('Gmail access expired. Reconnect your account in Email setup'); } // nothing was sent
-    const raw = b64url(buildMime({ from: acct.email, to: m.to, subject: m.subject, body: m.body, key: m.idempotencyKey }));
+    const raw = b64url(buildMime({ from: acct.email, to: m.to, subject: m.subject, body: m.body, key: m.idempotencyKey, attachments: m.attachments }));
     let res: Response;
     try {
       res = await fetch(`${GMAIL}/messages/send`, {

@@ -10,8 +10,8 @@ export class JobsController {
 
   @Get() list(@CurrentUser() u: AuthUser, @Query(new ZodPipe(ListJobsQuery)) q: any) { return this.svc.list(u.id, q); }
   @Post() create(@CurrentUser() u: AuthUser, @Body(new ZodPipe(CreateJobDto)) dto: any) { return this.svc.create(u.id, dto); }
-  @Post('analyze') analyze(@Body(new ZodPipe(AnalyzeTextDto)) dto: any) { return this.svc.analyzeText(dto); }
-  @Post('analyze-screenshot') analyzeShot(@Body(new ZodPipe(AnalyzeImageDto)) dto: any) { return this.svc.analyzeImage(dto); }
+  @Post('analyze') analyze(@CurrentUser() u: AuthUser, @Body(new ZodPipe(AnalyzeTextDto)) dto: any) { return this.svc.analyzeText(u.id, dto); }
+  @Post('analyze-screenshot') analyzeShot(@CurrentUser() u: AuthUser, @Body(new ZodPipe(AnalyzeImageDto)) dto: any) { return this.svc.analyzeImage(u.id, dto); }
   @Get(':id') get(@CurrentUser() u: AuthUser, @Param('id', ObjectIdPipe) id: string) { return this.svc.get(u.id, id); }
   @Post(':id/match') match(@CurrentUser() u: AuthUser, @Param('id', ObjectIdPipe) id: string, @Body(new ZodPipe(MatchDto)) dto: any) {
     return this.svc.match(u.id, id, dto);

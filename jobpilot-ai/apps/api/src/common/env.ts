@@ -23,7 +23,11 @@ export const env = {
     return s;
   },
   get tokenKey() { return req('TOKEN_ENCRYPTION_KEY'); },
-  get aiProvider() { return process.env.AI_PROVIDER ?? 'mock'; },
+  get geminiKey() { return (process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY ?? '').trim(); },
+  get geminiDefaultModel() { return (process.env.GEMINI_MODEL ?? 'gemini-2.5-flash').trim(); },
+  /** AI_PROVIDER wins; otherwise Gemini is used automatically when a key is present. */
+  get aiProvider() { return process.env.AI_PROVIDER ?? (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY ? 'gemini' : 'mock'); },
+  get autoRunEnabled() { return (process.env.AGENT_AUTORUN ?? 'true') !== 'false'; },
   get googleClientId() { return process.env.GOOGLE_CLIENT_ID ?? ''; },
   get googleClientSecret() { return process.env.GOOGLE_CLIENT_SECRET ?? ''; },
   get gmailRedirectUri() { return process.env.GMAIL_REDIRECT_URI || `http://localhost:${process.env.PORT ?? 4000}/api/v1/integrations/gmail/callback`; },

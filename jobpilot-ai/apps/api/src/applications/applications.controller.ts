@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common
 import { AuthUser, CurrentUser } from '../common/auth';
 import { ObjectIdPipe } from '../common/object-id.pipe';
 import { ZodPipe } from '../common/zod.pipe';
-import { ApplicationsService, ApproveDto, DraftDto, ListQuery, StatusDto } from './applications.service';
+import { AiDraftDto, ApplicationsService, ApproveDto, DraftDto, ListQuery, StatusDto } from './applications.service';
 
 @Controller()
 export class ApplicationsController {
@@ -14,6 +14,7 @@ export class ApplicationsController {
 
   @Get('applications') list(@CurrentUser() u: AuthUser, @Query(new ZodPipe(ListQuery)) q: any) { return this.svc.list(u.id, q); }
   @Post('applications/drafts') draft(@CurrentUser() u: AuthUser, @Body(new ZodPipe(DraftDto)) dto: any) { return this.svc.createDraft(u.id, dto); }
+  @Post('applications/ai-draft') aiDraft(@CurrentUser() u: AuthUser, @Body(new ZodPipe(AiDraftDto)) dto: any) { return this.svc.compose(u.id, dto); }
   @Get('applications/:id') get(@CurrentUser() u: AuthUser, @Param('id', ObjectIdPipe) id: string) { return this.svc.get(u.id, id); }
   @Post('applications/:id/approve') approve(@CurrentUser() u: AuthUser, @Param('id', ObjectIdPipe) id: string, @Body(new ZodPipe(ApproveDto)) dto: any) { return this.svc.approve(u.id, id, dto); }
   @Post('applications/:id/send') send(@CurrentUser() u: AuthUser, @Param('id', ObjectIdPipe) id: string) { return this.svc.send(u.id, id); }

@@ -12,6 +12,11 @@ export class Resume {
   @Prop({ type: Types.ObjectId }) sourceResumeId?: Types.ObjectId;
   @Prop({ type: Types.ObjectId }) jobId?: Types.ObjectId;
   @Prop({ default: 1 }) version: number;
+  // Original file, kept so it can be attached to applications. Never returned by list/get (select: false).
+  @Prop() fileName?: string;
+  @Prop() fileMime?: string;
+  @Prop() fileSize?: number;
+  @Prop({ type: Buffer, select: false }) fileData?: Buffer;
 }
 export const ResumeSchema = SchemaFactory.createForClass(Resume);
 ResumeSchema.index({ userId: 1, createdAt: -1 });

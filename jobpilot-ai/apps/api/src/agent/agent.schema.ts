@@ -15,6 +15,11 @@ export class AgentConfig {
   @Prop({ default: 18, min: 0, max: 24 }) windowEndHour: number;
   @Prop({ type: Types.ObjectId }) careerProfileId?: Types.ObjectId;
   @Prop({ type: Types.ObjectId }) resumeId?: Types.ObjectId;
+  // Hands-off mode: the server runs the agent on a timer while it is switched on (still bound by every limit above).
+  @Prop({ default: false }) autoRun: boolean;
+  @Prop({ default: 120, min: 15, max: 1440 }) autoRunEveryMin: number;
+  @Prop({ default: 'professional', enum: ['professional', 'concise', 'friendly', 'technical'] }) tone: string;
+  @Prop() lastAutoRunAt?: Date;
 }
 export const AgentConfigSchema = SchemaFactory.createForClass(AgentConfig);
 

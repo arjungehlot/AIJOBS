@@ -12,5 +12,5 @@ export class AgentController {
   @Post('resume') resume(@CurrentUser() u: AuthUser) { return this.svc.setPaused(u.id, false); }
   @Post('stop') stop(@CurrentUser() u: AuthUser) { return this.svc.stop(u.id); }
   @Get('runs') runs(@CurrentUser() u: AuthUser) { return this.svc.runsList(u.id); }
-  @Post('run') run(@CurrentUser() u: AuthUser, @Body(new ZodPipe(RunDto)) dto: any) { return this.svc.run(u.id, dto.dryRun); }
+  @Post('run') run(@CurrentUser() u: AuthUser, @Body(new ZodPipe(RunDto)) dto: any) { return this.svc.run(u.id, dto.dryRun, { discover: dto.discover }); }
 }

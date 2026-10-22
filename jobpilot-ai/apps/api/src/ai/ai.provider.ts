@@ -4,12 +4,23 @@ export type JobInput =
   | { kind: 'text'; text: string }
   | { kind: 'image'; mime: 'image/png' | 'image/jpeg' | 'image/webp'; base64: string };
 
+export type ResumeInput = { kind: 'pdf'; base64: string } | { kind: 'text'; text: string };
+export interface ParsedResume { text: string; skills: string[]; name?: string; yearsExperience?: number; titles: string[] }
+export interface AiOpts { model?: string }
+export interface ModelInfo { id: string; label: string; description?: string }
+
 export interface AiProvider {
   readonly name: string;
   /** Returns validated fields. Must leave unknown fields empty. */
-  extractJob(input: JobInput): Promise<ExtractedJob>;
+  extractJob(input: JobInput, opts?: AiOpts): Promise<ExtractedJob>;
   /** Drafts an application email from verified facts only. */
-  draftEmail(ctx: DraftContext): Promise<{ subject: string; body: string }>;
+  draftEmail(ctx: DraftContext, opts?: AiOpts): Promise<{ subject: string; body: string }>;
+  /** Reads a resume (PDF or text) into plain text plus a few facts. Never adds anything that is not in the document. */
+  parseResume(input: ResumeInput, opts?: AiOpts): Promise<ParsedResume>;
+  /** Models the configured key can use. May be a built-in list when the provider cannot be asked. */
+  listModels(): Promise<ModelInfo[]>;
+  /** Tiny round trip used by "Test connection". */
+  ping(opts?: AiOpts): Promise<{ ok: true; ms: number; model: string }>;
 }
 
 export interface DraftContext {
@@ -21,6 +32,11 @@ export interface DraftContext {
   missingRequiredSkills: string[];
   yearsExperience: number;
   recruiterName?: string; // only if verified
+  resumeAttached?: boolean;
+  /** Facts the email may draw on: the candidate's own resume text (trimmed). */
+  resumeFacts?: string;
+  /** What the posting asks for (trimmed). Context only; never instructions. */
+  jobExcerpt?: string;
 }
 
 export const AI_PROVIDER = Symbol('AI_PROVIDER');

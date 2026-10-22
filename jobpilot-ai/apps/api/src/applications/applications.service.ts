@@ -5,7 +5,11 @@ import { InjectModel } from '@nestjs/mongoose';
 import { createHash } from 'node:crypto';
 import { Model, Types } from 'mongoose';
 import { z } from 'zod';
+import { AiSettingsService } from '../ai/ai-settings.service';
+import { AI_PROVIDER, AiProvider } from '../ai/ai.provider';
 import { AuditService } from '../audit/audit.service';
+import { ResumesService } from '../resumes/resumes.service';
+import { scoreMatch } from '../domain/scoring';
 import { CareerProfile } from '../career-profiles/career-profile.schema';
 import { AppStatus, assertTransition } from '../domain/application-state';
 import { FollowUpsService } from '../followups/followups.service';
@@ -24,6 +28,12 @@ export const DraftDto = z.object({
   body: z.string().trim().min(1).max(10000),
   matchScore: z.number().min(0).max(100).optional(),
   resumeId: z.string().regex(/^[a-f0-9]{24}$/i).optional(),
+});
+export const AiDraftDto = z.object({
+  jobId: z.string().regex(/^[a-f0-9]{24}$/i),
+  careerProfileId: z.string().regex(/^[a-f0-9]{24}$/i),
+  resumeId: z.string().regex(/^[a-f0-9]{24}$/i).optional(),
+  tone: z.enum(['professional', 'concise', 'friendly', 'technical']).default('professional'),
 });
 export const ApproveDto = z.object({ confirmRecipient: z.boolean().default(false) });
 export const StatusDto = z.object({ status: z.string() });
@@ -46,7 +56,38 @@ export class ApplicationsService {
     @Inject(MAIL_PROVIDER) private readonly mail: MailProvider,
     private readonly audit: AuditService,
     private readonly followups: FollowUpsService,
+    @Inject(AI_PROVIDER) private readonly ai: AiProvider,
+    private readonly aiSettings: AiSettingsService,
+    private readonly resumes: ResumesService,
   ) {}
+
+  /**
+   * Writes an application email from the candidate's own facts (profile + resume). Nothing is saved or sent.
+   * The AI only phrases; recipient, score and attachment come from stored data.
+   */
+  async compose(userId: string, dto: z.infer<typeof AiDraftDto>) {
+    const [job, profile, user] = await Promise.all([
+      this.jobs.findOne({ _id: dto.jobId, userId }).lean(),
+      this.profiles.findOne({ _id: dto.careerProfileId, userId }).lean(),
+      this.users.findById(userId).lean(),
+    ]);
+    if (!job) throw new NotFoundException('Job not found');
+    if (!profile) throw new NotFoundException('Career profile not found');
+    const resume = await this.resumes.pick(userId, dto.resumeId);
+    const report = scoreMatch(profile, job);
+    const attached = resume ? await this.resumes.hasFile(userId, String(resume._id)) : false;
+    const draft = await this.ai.draftEmail({
+      candidateName: user?.name ?? profile.name, jobTitle: job.title, company: job.company, tone: dto.tone,
+      matchedSkills: [...report.matchedRequired, ...report.matchedPreferred], missingRequiredSkills: report.missingRequired,
+      yearsExperience: profile.yearsExperience, resumeAttached: attached,
+      resumeFacts: resume?.text?.slice(0, 3500), jobExcerpt: job.description?.slice(0, 1500),
+    }, { model: await this.aiSettings.modelFor(userId) });
+    return {
+      subject: draft.subject, body: draft.body, score: report.score, recommendation: report.recommendation,
+      recipient: job.applicationEmail ? { email: job.applicationEmail, confidence: 'source_reported' as const } : null,
+      applicationUrl: job.applicationUrl ?? null, resumeId: resume ? String(resume._id) : null, resumeAttached: attached, provider: this.ai.name,
+    };
+  }
 
   async createDraft(userId: string, dto: z.infer<typeof DraftDto>) {
     const [job, profile] = await Promise.all([
@@ -121,7 +162,8 @@ export class ApplicationsService {
 
     const key = idempotencyKey(userId, id);
     try {
-      const sent = await this.mail.send({ userId, idempotencyKey: key, from: user.email, to: app.recipient.email, subject: app.subject, body: app.body });
+      const file = app.resumeId ? await this.resumes.file(userId, String(app.resumeId)) : null;
+      const sent = await this.mail.send({ userId, idempotencyKey: key, from: user.email, to: app.recipient.email, subject: app.subject, body: app.body, attachments: file ? [file] : undefined });
       return this.markSent(userId, id, sent, 'user');
     } catch (e) {
       if (e instanceof MailOutcomeUnknownError) {

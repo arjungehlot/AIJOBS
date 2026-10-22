@@ -19,6 +19,7 @@ import { ContactsModule } from './contacts/contacts.module';
 import { FollowUpsModule } from './followups/followups.module';
 import { InboxModule } from './inbox/inbox.module';
 import { PrepModule } from './prep/prep.module';
+import { DiscoveryModule } from './discovery/discovery.module';
 import { ResumesModule } from './resumes/resumes.module';
 
 @Module({
@@ -28,7 +29,7 @@ import { ResumesModule } from './resumes/resumes.module';
     AdminModule,
     AuditModule, AiModule, MailModule,
     AuthModule, CareerProfilesModule, JobsModule, ApplicationsModule,
-    ContactsModule, ResumesModule, InboxModule, FollowUpsModule, AgentModule, AnalyticsModule, PrepModule,
+    ContactsModule, ResumesModule, InboxModule, FollowUpsModule, AgentModule, AnalyticsModule, PrepModule, DiscoveryModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: AuthGuard }],

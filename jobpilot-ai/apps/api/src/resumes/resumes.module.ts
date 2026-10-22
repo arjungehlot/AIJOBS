@@ -10,6 +10,6 @@ import { ResumesService } from './resumes.service';
   imports: [MongooseModule.forFeature([{ name: Resume.name, schema: ResumeSchema }, { name: Job.name, schema: JobSchema }, { name: User.name, schema: UserSchema }])],
   controllers: [ResumesController],
   providers: [ResumesService],
-  exports: [MongooseModule],
+  exports: [MongooseModule, ResumesService],
 })
 export class ResumesModule {}

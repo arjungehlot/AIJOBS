@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import { AiProvider, DraftContext, JobInput } from './ai.provider';
+import { BadRequestException } from '@nestjs/common';
+import { extractSkills } from '../domain/ats';
+import { AiProvider, DraftContext, JobInput, ModelInfo, ParsedResume, ResumeInput } from './ai.provider';
 import { ExtractedJob, ExtractedJobSchema } from './extraction.schema';
 
 const KNOWN_SKILLS = ['node.js', 'react', 'typescript', 'javascript', 'python', 'java', 'go', 'postgresql', 'mongodb',
@@ -43,7 +45,14 @@ export class MockAiProvider implements AiProvider {
     return {
       subject: `Application: ${c.jobTitle} - ${c.candidateName}`,
       body: `Hello ${c.recruiterName ?? 'Hiring Team'},\n\nI am applying for the ${c.jobTitle} role at ${c.company}. ` +
-        `I have ${c.yearsExperience} years of experience${skills ? ` with ${skills}` : ''}.${gap}\n\nMy resume is attached.\n\nKind regards,\n${c.candidateName}`,
+        `I have ${c.yearsExperience} years of experience${skills ? ` with ${skills}` : ''}.${gap}${c.resumeAttached ? "\n\nMy resume is attached." : ""}\n\nKind regards,\n${c.candidateName}`,
     };
   }
+
+  async parseResume(input: ResumeInput): Promise<ParsedResume> {
+    if (input.kind === 'pdf') throw new BadRequestException('Reading a PDF needs the Gemini AI provider. Set GEMINI_API_KEY, or paste the resume text instead.');
+    return { text: input.text, skills: extractSkills(input.text), titles: [] };
+  }
+  async listModels(): Promise<ModelInfo[]> { return [{ id: 'mock', label: 'Offline demo (no AI)' }]; }
+  async ping() { return { ok: true as const, ms: 0, model: 'mock' }; }
 }

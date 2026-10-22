@@ -39,3 +39,14 @@ test('EMAIL_RE rejects injection attempts', () => {
   assert.ok(!EMAIL_RE.test('a@b.co, evil@x.com'));
   assert.ok(!EMAIL_RE.test('a@b.co\nBcc: x@y.com'));
 });
+test('buildMime with a resume builds multipart/mixed and keeps the body and file intact', () => {
+  const pdf = Buffer.from('%PDF-1.4 fake resume bytes');
+  const raw = buildMime({ from: 'a@b.com', to: 'hr@c.com', subject: 'Application', body: 'Hello\nResume attached', key: 'abc123', attachments: [{ filename: 'Arjun "CV".pdf', mime: 'application/pdf', data: pdf }] });
+  assert.match(raw, /^Content-Type: multipart\/mixed; boundary="jp_abc123"$/m);
+  assert.match(raw, /Content-Disposition: attachment; filename="Arjun _CV_\.pdf"/);
+  const parts = raw.split('--jp_abc123');
+  assert.equal(parts.length, 4); // preamble, text, file, closing
+  assert.ok(parts[3].startsWith('--'));
+  const filePart = parts[2].split('\r\n\r\n')[1].replace(/\r\n/g, '');
+  assert.deepEqual(Buffer.from(filePart, 'base64'), pdf);
+});

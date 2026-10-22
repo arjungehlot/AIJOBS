@@ -11,6 +11,7 @@ export default function Resumes() {
   const [sel, setSel] = useState<string>(''); const [jobId, setJobId] = useState('');
   const [res, setRes] = useState<any>(null); const [tailor, setTailor] = useState<any>(null);
   const [form, setForm] = useState({ title: '', targetRole: '', text: '' });
+  const [up, setUp] = useState({ title: '', targetRole: '' }); const [file, setFile] = useState<File | null>(null); const [busy, setBusy] = useState(false); const [ok, setOk] = useState('');
   const [err, setErr] = useState('');
   const load = () => api<any[]>('/resumes').then((r) => { setList(r); if (!sel && r[0]) setSel(r[0]._id); }).catch((e) => setErr(errText(e)));
   useEffect(() => { load(); api('/jobs').then((r) => setJobs(r.items ?? r)).catch(() => undefined); }, []);
@@ -19,6 +20,15 @@ export default function Resumes() {
   async function create(e: FormEvent) {
     e.preventDefault(); setErr('');
     try { const r = await api('/resumes', { body: { ...form, targetRole: form.targetRole || undefined } }); setForm({ title: '', targetRole: '', text: '' }); setSel(r._id); load(); } catch (x) { setErr(errText(x)); }
+  }
+  async function upload(e: FormEvent) {
+    e.preventDefault(); if (!file) return; setErr(''); setOk(''); setBusy(true);
+    try {
+      const b64 = await new Promise<string>((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1] ?? ''); r.onerror = () => rej(new Error('read')); r.readAsDataURL(file); });
+      const mime = file.type === 'text/plain' ? 'text/plain' : 'application/pdf';
+      const r = await api('/resumes/upload', { body: { title: up.title || file.name.replace(/\.[^.]+$/, ''), targetRole: up.targetRole || undefined, filename: file.name, mime, base64: b64 } });
+      setUp({ title: '', targetRole: '' }); setFile(null); setSel(r._id); setOk(`Uploaded. ${r.skills.length} skills found. This file will be attached to emails you send.`); load();
+    } catch (x) { setErr(errText(x)); } finally { setBusy(false); }
   }
   async function doTailor() {
     setErr('');
@@ -29,7 +39,7 @@ export default function Resumes() {
   return (
     <>
       <div className="ph"><div><h1>Resume studio</h1><p>Check how well a resume covers a job’s skills. Tailoring only reorders your existing skills line, so it can never invent experience. The original stays untouched.</p></div></div>
-      {err && <div className="msg err" role="alert">{err}</div>}
+      {err && <div className="msg err" role="alert">{err}</div>}{ok && <div className="msg ok">{ok}</div>}
       <div className="grid">
         <div className="s4 stack">
           <section className="card">
@@ -38,9 +48,17 @@ export default function Resumes() {
               <div key={r._id} onClick={() => setSel(r._id)} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && setSel(r._id)}
                 style={{ padding: '9px 10px', borderRadius: 9, cursor: 'pointer', marginTop: 6, border: `1px solid ${sel === r._id ? 'var(--primary)' : 'var(--line)'}`, background: sel === r._id ? 'var(--primary-50)' : '#fff' }}>
                 <b>{r.title}</b> {r.kind === 'tailored' && <span className="pill">tailored</span>}
-                <div className="faint">{r.targetRole ?? 'General'} · v{r.version} · {r.skills.length} skills found</div>
+                <div className="faint">{r.targetRole ?? 'General'} · v{r.version} · {r.skills.length} skills found{r.fileName ? ` · 📎 ${r.fileName}` : ''}</div>
               </div>))}
           </section>
+          <form className="card stack" onSubmit={upload}>
+            <div className="card-h"><h2>Upload resume (PDF)</h2><span className="pill ok">attached to emails</span></div>
+            <label className="f">File<input type="file" accept="application/pdf,text/plain,.pdf,.txt" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></label>
+            <label className="f">Title<input value={up.title} placeholder={file?.name ?? 'e.g. Full Stack – base'} onChange={(e) => setUp({ ...up, title: e.target.value })} /></label>
+            <label className="f">Target role<input value={up.targetRole} onChange={(e) => setUp({ ...up, targetRole: e.target.value })} /></label>
+            <button className="btn primary" disabled={!file || busy}>{busy ? 'Reading your resume…' : 'Upload & read'}</button>
+            <div className="faint">Up to 4 MB. The AI reads the text for scoring and email writing; the original PDF is what gets attached. Use a text-based PDF, not a scan.</div>
+          </form>
           <form className="card stack" onSubmit={create}>
             <div className="card-h"><h2>Add resume text</h2><button type="button" className="btn sm" onClick={() => setForm({ title: 'Full Stack – base', targetRole: 'Full Stack Developer', text: SAMPLE })}>Example</button></div>
             <label className="f">Title<input required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} /></label>

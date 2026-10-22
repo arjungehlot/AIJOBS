@@ -2,6 +2,7 @@ import { BadGatewayException, BadRequestException, Inject, Injectable, NotFoundE
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { z } from 'zod';
+import { AiSettingsService } from '../ai/ai-settings.service';
 import { AI_PROVIDER, AiProvider } from '../ai/ai.provider';
 import { missingFields } from '../ai/extraction.schema';
 import { AuditService } from '../audit/audit.service';
@@ -47,22 +48,23 @@ export class JobsService {
     @InjectModel(CareerProfile.name) private readonly profiles: Model<CareerProfile>,
     @Inject(AI_PROVIDER) private readonly ai: AiProvider,
     private readonly audit: AuditService,
+    private readonly aiSettings: AiSettingsService,
   ) {}
 
-  async analyzeText(dto: z.infer<typeof AnalyzeTextDto>) {
-    return this.extract({ kind: 'text', text: dto.text });
+  async analyzeText(userId: string, dto: z.infer<typeof AnalyzeTextDto>) {
+    return this.extract(userId, { kind: 'text', text: dto.text });
   }
 
-  async analyzeImage(dto: z.infer<typeof AnalyzeImageDto>) {
+  async analyzeImage(userId: string, dto: z.infer<typeof AnalyzeImageDto>) {
     const bytes = Buffer.from(dto.base64, 'base64');
     if (bytes.length > MAX_IMAGE_BYTES) throw new PayloadTooLargeException('Image is larger than 8 MB');
     if (!MAGIC[dto.mime](bytes)) throw new BadRequestException('File content does not match its type');
-    return this.extract({ kind: 'image', mime: dto.mime, base64: dto.base64 });
+    return this.extract(userId, { kind: 'image', mime: dto.mime, base64: dto.base64 });
   }
 
-  private async extract(input: Parameters<AiProvider['extractJob']>[0]) {
+  private async extract(userId: string, input: Parameters<AiProvider['extractJob']>[0]) {
     try {
-      const job = await this.ai.extractJob(input);
+      const job = await this.ai.extractJob(input, { model: await this.aiSettings.modelFor(userId) });
       // Nothing is saved here. The user reviews and confirms via POST /jobs.
       return { job, missingFields: missingFields(job), provider: this.ai.name };
     } catch (e: any) {

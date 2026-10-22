@@ -51,6 +51,10 @@ Log in with it and you land on **/admin**: platform overview with charts, user m
 a system-health page. Role and suspension are read from the database on every request, so a suspension takes effect within seconds.
 A single `.env` in the repo root is read by the API. Not run against a real database yet.
 
+**Mailbox** (`/mail`): lists your Inbox / Sent / All mail from Gmail, opens whole conversations as plain text, composes and replies
+(real sending needs `MAIL_PROVIDER=gmail`, max 50 a day), and marks sent conversations as *Replied* or *Awaiting reply*.
+There is deliberately **no open tracking**: it would need hidden tracking pixels, which are unreliable and invasive.
+
 ## Behaviour worth knowing
 
 - A reminder is created 5 business days after a confirmed send, and cancelled when you apply a reply to that application.
@@ -79,7 +83,15 @@ Prerequisites: Node 22, a MongoDB instance (local or Atlas).
     cp apps/web/.env.example apps/web/.env.local
     npm run dev:web               # http://localhost:3000
 
-Defaults are `AI_PROVIDER=mock` and `MAIL_PROVIDER=mock`, so nothing external is called and no email is sent.
+Defaults: with no `GEMINI_API_KEY` the AI is an offline demo, and `MAIL_PROVIDER=mock` means no email is really sent.
+
+### Gemini AI, job finder and auto-apply
+1. Put `GEMINI_API_KEY=...` in `.env` and restart the API. Pick a model under **AI Settings** (the list comes from Google for your key); **Test connection** confirms it works.
+2. **Resume Studio -> Upload resume (PDF)**: the AI reads the text; the original PDF is attached to every application email.
+3. **Job Finder** searches live openings (Remotive, Arbeitnow, Remote OK, Jobicy: public, key-less APIs), scores them against your profile and writes the email with AI. Postings that list an email can be applied to from the app; others open the company's site (the app cannot fill in third-party web forms).
+4. **AI Agent**: Copilot mode prepares AI-written drafts for approval. Autonomous mode + "send emails by itself" + `MAIL_PROVIDER=gmail` sends by itself, but only for jobs that pass every rule (score threshold, verified recipient, daily and per-company caps, run window, send gate). "Hands-off mode" repeats this on a timer while the API runs (`AGENT_AUTORUN=false` disables it).
+
+Status: the Gemini, job-board and auto-send code is covered by unit tests for its pure parts only. It has not been run against the live Google or job-board APIs by the author, so do a first run with Copilot mode and a test recipient.
 `MAIL_MOCK_MODE=reject|unknown` simulates a failed or unconfirmed send so you can see the recovery paths.
 
 ## The send gate

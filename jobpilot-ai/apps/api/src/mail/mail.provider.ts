@@ -2,7 +2,7 @@ export interface OutgoingMail {
   userId: string;
   idempotencyKey: string;
   from: string; to: string; subject: string; body: string;
-  attachments?: { filename: string; storageKey: string }[];
+  attachments?: { filename: string; mime: string; data: Buffer }[];
 }
 export interface SentMail { messageId: string; threadId?: string }
 
