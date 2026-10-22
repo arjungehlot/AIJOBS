@@ -10,12 +10,15 @@ const GROUPS = [
     { label: 'Overview', href: '/dashboard', icon: 'dash' }, { label: 'Job Analyzer', href: '/analyzer', icon: 'scan' },
     { label: 'Applications', href: '/applications', icon: 'kanban' }, { label: 'Career Profiles', href: '/profiles', icon: 'user' } ] },
   { h: 'Outreach', items: [
-    { label: 'Inbox', href: '/inbox', icon: 'mail' }, { label: 'HR Contacts', href: '/contacts', icon: 'users' },
-    { label: 'Follow-ups', href: '/followups', icon: 'bell' }, { label: 'Resume Studio', href: '/resumes', icon: 'file' } ] },
+    { label: 'Mailbox', href: '/mail', icon: 'mail' }, { label: 'Reply Inbox', href: '/inbox', icon: 'scan' }, { label: 'HR Contacts', href: '/contacts', icon: 'users' },
+    { label: 'Follow-ups', href: '/followups', icon: 'bell' }, { label: 'Email Setup', href: '/settings/email', icon: 'send' }, { label: 'Resume Studio', href: '/resumes', icon: 'file' } ] },
   { h: 'Automation & insight', items: [
     { label: 'AI Agent', href: '/agent', icon: 'bot' }, { label: 'Analytics', href: '/analytics', icon: 'chart' }, { label: 'Interview Prep', href: '/prep', icon: 'book' } ] },
 ];
-const ALL = GROUPS.flatMap((g) => g.items);
+const ADMIN = { h: 'Super admin', items: [
+  { label: 'Admin Overview', href: '/admin', icon: 'shield' }, { label: 'Users', href: '/admin/users', icon: 'users' },
+  { label: 'Audit Log', href: '/admin/audit', icon: 'file' }, { label: 'System Health', href: '/admin/system', icon: 'target' } ] };
+const ALL = [...GROUPS, ADMIN].flatMap((g) => g.items);
 const TITLES: Record<string, string> = Object.fromEntries(ALL.map((i) => [i.href, i.label]));
 
 function Palette({ onClose, go }: { onClose: () => void; go: (h: string) => void }) {
@@ -40,7 +43,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const path = usePathname();
   const router = useRouter();
   const [pal, setPal] = useState(false);
-  const [me, setMe] = useState<{ name: string; email: string; plan: string } | null>(null);
+  const [me, setMe] = useState<{ name: string; email: string; plan: string; role?: string } | null>(null);
   useEffect(() => {
     if (!token.get()) { router.replace('/login'); return; }
     api('/auth/me').then(setMe).catch(() => undefined);
@@ -55,11 +58,11 @@ export default function AppShell({ children }: { children: ReactNode }) {
     <div className="shell">
       <nav className="side" aria-label="Main">
         <Logo />
-        {GROUPS.map((g) => (
+        {(me?.role === 'super_admin' ? [ADMIN, ...GROUPS] : GROUPS).map((g) => (
           <div key={g.h}>
             <div className="nav-h">{g.h}</div>
             {g.items.map((n) => {
-              const on = path.startsWith(n.href);
+              const on = n.href === '/admin' ? path === '/admin' : path.startsWith(n.href);
               return <Link key={n.href} href={n.href} className={`nav ${on ? 'on' : ''}`} aria-current={on ? 'page' : undefined}><Icon name={n.icon} />{n.label}</Link>;
             })}
           </div>
@@ -68,7 +71,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           <div className="avatar" aria-hidden="true">{initials}</div>
           <div style={{ minWidth: 0, flex: 1 }}>
             <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{me?.name ?? ' '}</div>
-            <div className="faint" style={{ textTransform: 'capitalize' }}>{me?.plan?.replace('_', ' ') ?? ''} plan</div>
+            <div className="faint" style={{ textTransform: 'capitalize' }}>{me?.role === 'super_admin' ? 'Super admin' : `${me?.plan?.replace('_', ' ') ?? ''} plan`}</div>
           </div>
           <button className="btn sm" aria-label="Log out" title="Log out" onClick={() => { token.clear(); router.push('/login'); }}><Icon name="out" size={14} /></button>
         </div>

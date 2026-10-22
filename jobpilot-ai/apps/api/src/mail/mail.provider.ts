@@ -1,4 +1,5 @@
 export interface OutgoingMail {
+  userId: string;
   idempotencyKey: string;
   from: string; to: string; subject: string; body: string;
   attachments?: { filename: string; storageKey: string }[];
@@ -14,6 +15,6 @@ export interface MailProvider {
   readonly name: string;
   send(m: OutgoingMail): Promise<SentMail>;
   /** Looks in the provider's sent mail for a message carrying this idempotency key. */
-  findSent(idempotencyKey: string): Promise<SentMail | null>;
+  findSent(idempotencyKey: string, userId: string): Promise<SentMail | null>;
 }
 export const MAIL_PROVIDER = Symbol('MAIL_PROVIDER');

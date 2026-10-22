@@ -26,6 +26,10 @@ export default function Inbox() {
     try { await api('/inbox', { body: { ...form, fromEmail: form.fromEmail || undefined } }); setForm({ fromEmail: '', subject: '', body: '' }); setOk('Reply analyzed. Nothing was changed automatically.'); load(); }
     catch (x) { setErr(errText(x)); }
   }
+  async function syncGmail() {
+    setErr(''); setOk('');
+    try { const r = await api('/integrations/gmail/sync', { body: {} }); setOk(`Checked ${r.threadsChecked} conversations, imported ${r.imported} new.`); load(); } catch (x) { setErr(errText(x)); }
+  }
   async function act(id: string, path: string, body?: unknown) {
     setErr(''); setOk('');
     try { const r = await api(`/inbox/${id}/${path}`, { body: body ?? {}, method: 'POST' }); if (path === 'apply') setOk(`Application moved to "${String(r.status).replace('_', ' ')}". Pending reminders for it were cancelled.`); load(); }
@@ -34,7 +38,8 @@ export default function Inbox() {
 
   return (
     <>
-      <div className="ph"><div><h1>Inbox</h1><p>Paste a recruiter reply. It is classified on your server with fixed rules, linked to an application, and only changes a status when you press Apply.</p></div></div>
+      <div className="ph"><div><h1>Inbox</h1><p>Paste a recruiter reply, or sync from Gmail. Each reply is classified with fixed rules, linked to an application, and only changes a status when you press Apply.</p></div>
+        <button className="btn" onClick={syncGmail}>Sync Gmail</button></div>
       {err && <div className="msg err" role="alert">{err}</div>}{ok && <div className="msg ok">{ok}</div>}
       <div className="grid">
         <form className="card s5 stack" onSubmit={submit}>
@@ -43,7 +48,7 @@ export default function Inbox() {
           <label className="f">Subject<input required value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} /></label>
           <label className="f">Email text<textarea required rows={9} style={{ height: 'auto' }} value={form.body} onChange={(e) => setForm({ ...form, body: e.target.value })} /></label>
           <button className="btn primary" style={{ alignSelf: 'flex-start' }}>Analyze reply</button>
-          <p className="faint">Gmail / Outlook sync is not connected yet. Instructions inside an email are treated as text and are never followed.</p>
+          <p className="faint">Connect Gmail under Email Setup to import replies automatically. Instructions inside an email are treated as text and are never followed.</p>
         </form>
         <div className="s7 stack">
           {!msgs ? <div className="card muted">Loading</div> : msgs.length === 0 ? <div className="card empty">No replies yet. Paste one on the left, or press “Fill example”.</div> : msgs.map((m) => {

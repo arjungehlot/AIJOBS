@@ -1,21 +1,11 @@
-import dotenv from 'dotenv';
-import path from 'node:path';
-import fs from 'node:fs';
+import { config } from 'dotenv';
+import { resolve } from 'node:path';
 
-// Check both local and workspace root for .env
-const envPaths = [
-  path.resolve(process.cwd(), '.env'),
-  path.resolve(process.cwd(), '../../.env'),
-  path.resolve(__dirname, '../../../.env'),
-  path.resolve(__dirname, '../../../../.env'),
-];
-for (const envPath of envPaths) {
-  if (fs.existsSync(envPath)) {
-    dotenv.config({ path: envPath });
-  }
-}
-dotenv.config();
-
+// The API is started from apps/api, but a single .env at the repo root is the normal layout.
+// Earlier files win, so apps/api/.env can override the root one.
+config({ path: resolve(process.cwd(), '.env') });
+config({ path: resolve(process.cwd(), '../../.env') });
+config({ path: resolve(__dirname, '../../../../.env') });
 
 function req(name: string): string {
   const v = process.env[name];
@@ -34,5 +24,12 @@ export const env = {
   },
   get tokenKey() { return req('TOKEN_ENCRYPTION_KEY'); },
   get aiProvider() { return process.env.AI_PROVIDER ?? 'mock'; },
+  get googleClientId() { return process.env.GOOGLE_CLIENT_ID ?? ''; },
+  get googleClientSecret() { return process.env.GOOGLE_CLIENT_SECRET ?? ''; },
+  get gmailRedirectUri() { return process.env.GMAIL_REDIRECT_URI || `http://localhost:${process.env.PORT ?? 4000}/api/v1/integrations/gmail/callback`; },
+  get gmailConfigured() { return !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET); },
+  get superAdminEmail() { return (process.env.SUPER_ADMIN_EMAIL ?? '').trim().toLowerCase(); },
+  get superAdminPassword() { return process.env.SUPER_ADMIN_PASSWORD ?? ''; },
+  get superAdminName() { return (process.env.SUPER_ADMIN_NAME ?? 'Super Admin').trim() || 'Super Admin'; },
   get mailProvider() { return process.env.MAIL_PROVIDER ?? 'mock'; },
 };

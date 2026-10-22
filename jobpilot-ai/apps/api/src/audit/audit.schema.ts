@@ -1,12 +1,12 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
 
-export type Actor = 'user' | 'agent' | 'workflow' | 'integration' | 'system';
+export type Actor = 'user' | 'agent' | 'workflow' | 'integration' | 'system' | 'admin';
 
 @Schema({ timestamps: { createdAt: true, updatedAt: false }, collection: 'audit_logs' })
 export class AuditLog {
   @Prop({ type: Types.ObjectId, required: true, index: true }) userId: Types.ObjectId;
-  @Prop({ required: true, enum: ['user', 'agent', 'workflow', 'integration', 'system'] }) actor: string;
+  @Prop({ required: true, enum: ['user', 'agent', 'workflow', 'integration', 'system', 'admin'] }) actor: string;
   @Prop({ required: true }) action: string;
   @Prop({ required: true }) entityType: string;
   @Prop({ type: Types.ObjectId, required: true }) entityId: Types.ObjectId;

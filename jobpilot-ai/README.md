@@ -30,11 +30,26 @@ a few type errors on first `npm run typecheck`. Treat the first build as part of
 
 ## Not built yet
 
-Gmail and Microsoft Graph providers and OAuth (so the inbox is paste-in for now), resume file upload/PDF parsing (resumes are pasted
+Microsoft Graph / Outlook provider, resume file upload/PDF parsing (resumes are pasted
 text), automatic HR contact discovery (contacts are entered by you), auto-send by the agent (the agent only creates drafts),
 scheduled agent runs and BullMQ/Redis workers, workflow builder, billing and plans (only plan-based limits exist),
-organizations/teams, admin panel, notifications, email verification, password reset, MFA, rate limiting, Swagger,
+organizations/teams, billing admin, notifications, email verification, password reset, MFA, rate limiting, Swagger,
 Docker and CI, and the integration/E2E tests.
+
+## Gmail (Email setup)
+
+Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `GMAIL_REDIRECT_URI` (must equal the redirect URI in Google Cloud), then open
+**Email Setup** in the app and connect. Set `MAIL_PROVIDER=gmail` to send real email; the default `mock` never does.
+Scopes: `gmail.send` and `gmail.readonly` (replies are read only from threads of applications you sent). Refresh tokens are stored
+encrypted (AES-256-GCM). **Not tested against real Google yet.** Google treats `gmail.readonly` as a restricted scope, so a public
+launch needs Google's app verification; in Testing mode, add your address as a test user.
+
+## Super admin
+
+`SUPER_ADMIN_EMAIL` / `SUPER_ADMIN_PASSWORD` in `.env` create (or sync) the super admin in MongoDB at API startup; only a bcrypt hash is stored.
+Log in with it and you land on **/admin**: platform overview with charts, user management (plan, role, suspend), global audit log and
+a system-health page. Role and suspension are read from the database on every request, so a suspension takes effect within seconds.
+A single `.env` in the repo root is read by the API. Not run against a real database yet.
 
 ## Behaviour worth knowing
 

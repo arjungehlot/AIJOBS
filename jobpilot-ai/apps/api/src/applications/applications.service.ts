@@ -121,7 +121,7 @@ export class ApplicationsService {
 
     const key = idempotencyKey(userId, id);
     try {
-      const sent = await this.mail.send({ idempotencyKey: key, from: user.email, to: app.recipient.email, subject: app.subject, body: app.body });
+      const sent = await this.mail.send({ userId, idempotencyKey: key, from: user.email, to: app.recipient.email, subject: app.subject, body: app.body });
       return this.markSent(userId, id, sent, 'user');
     } catch (e) {
       if (e instanceof MailOutcomeUnknownError) {
@@ -140,7 +140,7 @@ export class ApplicationsService {
   async reconcile(userId: string, id: string) {
     const app = await this.own(userId, id);
     if (app.status !== 'send_unknown') throw new BadRequestException('Nothing to reconcile');
-    const found = await this.mail.findSent(idempotencyKey(userId, id));
+    const found = await this.mail.findSent(idempotencyKey(userId, id), userId);
     if (found) return this.markSent(userId, id, found, 'integration');
     await this.apps.updateOne({ _id: id }, { $set: { status: 'send_failed', lastError: 'Provider has no record of this message' } });
     await this.audit.record({ userId, actor: 'integration', action: 'application.reconciled', entityType: 'application', entityId: id, result: 'success', detail: 'Not found at provider; safe to retry' });

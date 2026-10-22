@@ -15,6 +15,8 @@ export class AuditService {
 
   record(e: AuditEntry) { return this.model.create(e); }
 
+  countSince(userId: string, action: string, since: Date) { return this.model.countDocuments({ userId, action, createdAt: { $gte: since } }); }
+
   timeline(userId: string, entityType: string, entityId: string) {
     return this.model.find({ userId, entityType, entityId }).sort({ createdAt: -1 }).limit(200).lean();
   }

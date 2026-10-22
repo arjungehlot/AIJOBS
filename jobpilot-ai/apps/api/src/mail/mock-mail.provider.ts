@@ -23,5 +23,5 @@ export class MockMailProvider implements MailProvider {
     return rec;
   }
 
-  async findSent(key: string) { return this.sent.get(key) ?? null; }
+  async findSent(key: string, _userId?: string) { return this.sent.get(key) ?? null; }
 }

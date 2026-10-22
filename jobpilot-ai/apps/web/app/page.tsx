@@ -39,7 +39,7 @@ export default function Landing() {
         <nav className="links" aria-label="Sections"><a href="#features">Features</a><a href="#how">How it works</a><a href="#control">Control</a><a href="#pricing">Plans</a><a href="#faq">FAQ</a></nav>
         <span className="sp" />
         <Link href="/login" className="btn">Log in</Link>
-        <Link href="/login" className="btn primary">Start free</Link>
+        <Link href="/register" className="btn primary">Start free</Link>
       </header>
 
       <section className="hero">
@@ -48,7 +48,7 @@ export default function Landing() {
           <h1>Your AI job search agent. <em>From discovery to interview.</em></h1>
           <p className="lead">Find suitable jobs, understand your fit, draft honest applications and track every reply from one calm workspace. You stay in control of everything that gets sent.</p>
           <div className="row" style={{ justifyContent: 'center' }}>
-            <Link href="/login" className="btn primary lg">Start free<Icon name="arrow" size={15} /></Link>
+            <Link href="/register" className="btn primary lg">Start free<Icon name="arrow" size={15} /></Link>
             <a href="#how" className="btn lg">See how it works</a>
           </div>
 
@@ -118,7 +118,7 @@ export default function Landing() {
             <div className={`card ${p.hl ? 'hl' : ''}`} key={p.n}>
               <div><h3 style={{ fontSize: 16 }}>{p.n}</h3><p className="muted">{p.d}</p></div>
               <ul>{p.f.map((x) => <li key={x}>{x}</li>)}</ul>
-              <Link href="/login" className={`btn ${p.hl ? 'primary' : ''}`} style={{ justifyContent: 'center', marginTop: 'auto' }}>Start free</Link>
+              <Link href="/register" className={`btn ${p.hl ? 'primary' : ''}`} style={{ justifyContent: 'center', marginTop: 'auto' }}>Start free</Link>
             </div>
           ))}
         </div>
@@ -133,7 +133,7 @@ export default function Landing() {
       <section className="cta">
         <h2 style={{ fontSize: 28, letterSpacing: '-0.025em' }}>Try it on one real job</h2>
         <p className="muted" style={{ margin: '8px 0 18px' }}>Create a profile, paste a job and see the fit in a couple of minutes.</p>
-        <Link href="/login" className="btn primary lg">Start free<Icon name="arrow" size={15} /></Link>
+        <Link href="/register" className="btn primary lg">Start free<Icon name="arrow" size={15} /></Link>
       </section>
       <footer className="foot"><span>© JobPilot AI</span><span>Privacy policy and terms to be published before launch.</span></footer>
     </div>

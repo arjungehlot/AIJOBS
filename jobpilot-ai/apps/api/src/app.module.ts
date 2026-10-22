@@ -11,6 +11,8 @@ import { CareerProfilesModule } from './career-profiles/career-profiles.module';
 import { HealthController } from './health.controller';
 import { JobsModule } from './jobs/jobs.module';
 import { MailModule } from './mail/mail.module';
+import { AdminModule } from './admin/admin.module';
+import { User, UserSchema } from './users/user.schema';
 import { AgentModule } from './agent/agent.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { ContactsModule } from './contacts/contacts.module';
@@ -22,6 +24,8 @@ import { ResumesModule } from './resumes/resumes.module';
 @Module({
   imports: [
     MongooseModule.forRoot(env.mongoUri),
+    MongooseModule.forFeature([{ name: User.name, schema: UserSchema }]),
+    AdminModule,
     AuditModule, AiModule, MailModule,
     AuthModule, CareerProfilesModule, JobsModule, ApplicationsModule,
     ContactsModule, ResumesModule, InboxModule, FollowUpsModule, AgentModule, AnalyticsModule, PrepModule,

@@ -1,18 +1,23 @@
 import { Global, Module } from '@nestjs/common';
-import { env } from '../common/env';
+import { MongooseModule } from '@nestjs/mongoose';
+import { Application, ApplicationSchema } from '../applications/application.schema';
+import { InboundMessage, InboundMessageSchema } from '../inbox/message.schema';
+import { GmailController } from './gmail.controller';
+import { GmailService } from './gmail.service';
+import { MailAccount, MailAccountSchema } from './mail-account.schema';
 import { MAIL_PROVIDER } from './mail.provider';
 import { MockMailProvider } from './mock-mail.provider';
+import { RoutingMailProvider } from './routing-mail.provider';
 
-// Gmail and Microsoft Graph providers are not implemented yet; see README.
 @Global()
 @Module({
-  providers: [{
-    provide: MAIL_PROVIDER,
-    useFactory: () => {
-      if (env.mailProvider !== 'mock') throw new Error(`Mail provider "${env.mailProvider}" is not implemented yet`);
-      return new MockMailProvider();
-    },
-  }],
-  exports: [MAIL_PROVIDER],
+  imports: [MongooseModule.forFeature([
+    { name: MailAccount.name, schema: MailAccountSchema },
+    { name: InboundMessage.name, schema: InboundMessageSchema },
+    { name: Application.name, schema: ApplicationSchema },
+  ])],
+  controllers: [GmailController],
+  providers: [GmailService, MockMailProvider, RoutingMailProvider, { provide: MAIL_PROVIDER, useExisting: RoutingMailProvider }],
+  exports: [MAIL_PROVIDER, GmailService],
 })
 export class MailModule {}

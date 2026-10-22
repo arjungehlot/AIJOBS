@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import bcrypt from 'bcryptjs';
 import { Model } from 'mongoose';
@@ -33,6 +33,8 @@ export class AuthService {
     const u = await this.users.findOne({ email: dto.email });
     // Same error for unknown email and wrong password.
     if (!u || !(await bcrypt.compare(dto.password, u.passwordHash))) throw new UnauthorizedException('Invalid credentials');
+    if (u.status === 'suspended') throw new ForbiddenException('This account is suspended. Contact support.');
+    await this.users.updateOne({ _id: u._id }, { $set: { lastLoginAt: new Date() } });
     return this.session(u);
   }
 
@@ -44,6 +46,6 @@ export class AuthService {
 
   private session(u: any) {
     const user = { id: String(u._id), name: u.name, email: u.email, plan: u.plan, role: u.role };
-    return { token: signToken({ id: user.id, role: u.role === 'admin' ? 'admin' : 'user' }), user };
+    return { token: signToken({ id: user.id, role: u.role }), user };
   }
 }
