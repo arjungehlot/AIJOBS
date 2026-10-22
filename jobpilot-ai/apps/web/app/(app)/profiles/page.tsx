@@ -27,8 +27,7 @@ export default function Profiles() {
 
   return (
     <>
-      <h1>Career profiles</h1>
-      <p className="muted" style={{ margin: 0 }}>Each profile has its own skills, preferences and limits. Matching and sending rules use the profile you pick.</p>
+      <div className="ph"><div><h1>Career profiles</h1><p>Each profile has its own skills, preferences and limits. Matching and sending rules use the profile you pick.</p></div></div>
       {err && <div className="msg err" role="alert">{err}</div>}
       <form className="card" onSubmit={create} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <h2>New profile</h2>

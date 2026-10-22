@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { AuditService } from '../audit/audit.service';
 import { CareerProfile } from '../career-profiles/career-profile.schema';
 import { AppStatus, assertTransition } from '../domain/application-state';
+import { FollowUpsService } from '../followups/followups.service';
 import { Job, JobMatch } from '../jobs/job.schema';
 import { MAIL_PROVIDER, MailOutcomeUnknownError, MailProvider, MailRejectedError } from '../mail/mail.provider';
 import { User } from '../users/user.schema';
@@ -22,6 +23,7 @@ export const DraftDto = z.object({
   subject: z.string().trim().min(1).max(300),
   body: z.string().trim().min(1).max(10000),
   matchScore: z.number().min(0).max(100).optional(),
+  resumeId: z.string().regex(/^[a-f0-9]{24}$/i).optional(),
 });
 export const ApproveDto = z.object({ confirmRecipient: z.boolean().default(false) });
 export const StatusDto = z.object({ status: z.string() });
@@ -43,6 +45,7 @@ export class ApplicationsService {
     @InjectModel(User.name) private readonly users: Model<User>,
     @Inject(MAIL_PROVIDER) private readonly mail: MailProvider,
     private readonly audit: AuditService,
+    private readonly followups: FollowUpsService,
   ) {}
 
   async createDraft(userId: string, dto: z.infer<typeof DraftDto>) {
@@ -56,7 +59,7 @@ export class ApplicationsService {
     try {
       const app = await this.apps.create({
         userId, jobId: job._id, careerProfileId: profile._id, subject: dto.subject, body: dto.body,
-        matchScore: dto.matchScore, status: 'draft',
+        matchScore: dto.matchScore, resumeId: dto.resumeId, status: 'draft',
         recipient: { email: dto.recipientEmail, confidence: dto.recipientConfidence, name: dto.recipientName, confirmedByUser: false },
       });
       await this.audit.record({ userId, actor: 'user', action: 'application.drafted', entityType: 'application', entityId: String(app._id), result: 'success' });
@@ -198,6 +201,36 @@ export class ApplicationsService {
     };
   }
 
+  /** Real time series for the dashboard charts. Days with no activity are returned as 0. */
+  async trends(userId: string, days = 14) {
+    const uid = new Types.ObjectId(userId);
+    const since = new Date(); since.setUTCHours(0, 0, 0, 0); since.setUTCDate(since.getUTCDate() - (days - 1));
+    const perDay = (field: string) => [
+      { $match: { userId: uid, [field]: { $gte: since } } },
+      { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: `$${field}` } }, n: { $sum: 1 } } },
+    ];
+    const [sentRows, foundRows, buckets] = await Promise.all([
+      this.apps.aggregate(perDay('sentAt')),
+      this.jobs.aggregate(perDay('createdAt')),
+      this.matches.aggregate([
+        { $match: { userId: uid } },
+        { $sort: { createdAt: -1 } },
+        { $group: { _id: '$jobId', score: { $first: '$score' } } }, // latest score per job
+        { $bucket: { groupBy: '$score', boundaries: [0, 40, 55, 70, 85, 101], default: 'other', output: { count: { $sum: 1 } } } },
+      ]),
+    ]);
+    const list = Array.from({ length: days }, (_, i) => {
+      const d = new Date(since); d.setUTCDate(since.getUTCDate() + i); return d.toISOString().slice(0, 10);
+    });
+    const pick = (rows: any[]) => { const m = new Map(rows.map((r) => [r._id, r.n])); return list.map((d) => m.get(d) ?? 0); };
+    const labels = ['0–39', '40–54', '55–69', '70–84', '85+'];
+    const bounds = [0, 40, 55, 70, 85];
+    return {
+      days: list, sent: pick(sentRows), discovered: pick(foundRows),
+      scoreBuckets: labels.map((label, i) => ({ label, count: buckets.find((b: any) => b._id === bounds[i])?.count ?? 0 })),
+    };
+  }
+
   // -- helpers --
   private async own(userId: string, id: string) {
     const a = await this.apps.findOne({ _id: id, userId });
@@ -219,6 +252,11 @@ export class ApplicationsService {
     );
     if (!app) throw new ConflictException('Application changed while sending');
     await this.audit.record({ userId, actor, action: 'application.sent', entityType: 'application', entityId: id, result: 'success', meta: { messageId: sent.messageId, threadId: sent.threadId } });
+    // Reminder is best-effort: a failure here must never undo a send that already happened.
+    try {
+      const job = await this.jobs.findById(app.jobId).select('company title').lean();
+      await this.followups.scheduleAfterSend(userId, id, job ? `${job.title} at ${job.company}` : 'application');
+    } catch { /* ignored on purpose */ }
     return app;
   }
 }

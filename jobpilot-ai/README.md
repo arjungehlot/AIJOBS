@@ -12,9 +12,12 @@ Stack: NestJS + Mongoose (MongoDB) API, Next.js 14 (App Router) web app, npm wor
 | Scoring engine (`apps/api/src/domain/scoring.ts`) | Complete, explainable, unknown fields excluded not guessed | 7 unit tests pass |
 | Job dedupe keys | Complete | 4 unit tests pass |
 | Application state machine | Complete; users cannot set system-only states | 5 unit tests pass |
+| Reply classifier, business days, ATS coverage, agent policy, stats, interview prep (`domain/*`) | Pure rule-based logic, no AI calls | 33 more unit tests pass (52 total) |
 | Token encryption (AES-256-GCM) | Complete, not yet used (needed for Gmail/Outlook tokens) | 3 unit tests pass |
 | API: auth, career profiles, jobs, match, applications, audit, overview | Written | **Not compiled or run** |
-| Web: login, overview, profiles, analyzer, tracker | Written | **Not compiled or run** |
+| API: inbox, contacts + companies, resumes (analyze/tailor), follow-ups, agent (config/dry-run/drafts), analytics, prep | Written. Syntax-checked with the TypeScript parser only | **Not compiled or run against MongoDB** |
+| Web: inbox, contacts, resume studio, follow-ups, AI agent, analytics, interview prep, Kanban board, Ctrl+K palette | Every sidebar item is now a real page. Rendered in headless Chromium with mocked API data, no page errors | Visual check only |
+| Web: landing, login, overview (charts), profiles, analyzer, tracker | Light theme, compact. Landing, login and dashboard rendered in headless Chromium with mocked data (no page errors); not built with Next | Visual check only |
 | AI extraction | Mock provider (offline heuristics) and OpenAI-compatible provider | OpenAI path **never called** |
 | Mail | Mock provider only (never sends real email) | Not run |
 
@@ -27,16 +30,26 @@ a few type errors on first `npm run typecheck`. Treat the first build as part of
 
 ## Not built yet
 
-Gmail and Microsoft Graph providers and OAuth, inbox sync and reply classification, resume upload/parsing/tailoring
-(S3), HR contact discovery, follow-ups and interviews, agent runs, workflow builder, BullMQ/Redis workers,
-billing and plans (only a plan-based profile limit exists), organizations/teams, admin panel, notifications,
-analytics beyond the overview, email verification, password reset, MFA, landing page, rate limiting, Swagger,
-Docker and CI, and the integration/E2E tests. The design canvas shows the target screens for several of these.
+Gmail and Microsoft Graph providers and OAuth (so the inbox is paste-in for now), resume file upload/PDF parsing (resumes are pasted
+text), automatic HR contact discovery (contacts are entered by you), auto-send by the agent (the agent only creates drafts),
+scheduled agent runs and BullMQ/Redis workers, workflow builder, billing and plans (only plan-based limits exist),
+organizations/teams, admin panel, notifications, email verification, password reset, MFA, rate limiting, Swagger,
+Docker and CI, and the integration/E2E tests.
+
+## Behaviour worth knowing
+
+- A reminder is created 5 business days after a confirmed send, and cancelled when you apply a reply to that application.
+- Applying an inbox suggestion walks the status machine one legal step at a time (e.g. applied, hr_replied, interview).
+- Tailoring a resume only reorders the existing `Skills:` line into a new copy. It never adds skills.
+- The agent starts paused, in manual mode. A live run creates drafts for jobs that pass its rules. Sending still needs your approval.
+- Analytics flags any group with fewer than 20 applications as low-sample.
 
 ## Known simplifications
 
 - Jobs are stored per user, not as shared canonical records.
 - The web app keeps the JWT in `localStorage`; production should use an httpOnly cookie session.
+- Charts are small dependency-free SVG components (`apps/web/components/charts.tsx`), not Recharts.
+- The dashboard has a clearly labelled "Preview with sample data" toggle; real mode only shows stored records.
 - Plain CSS with design tokens instead of Tailwind/shadcn; plain `fetch` instead of TanStack Query.
 - The daily send limit counts from 00:00 UTC.
 - `send_unknown` is handled by `reconcile`, which asks the mail provider; only the mock provider exists so far.
@@ -72,3 +85,9 @@ blocked attempts, is written to the append-only audit log.
     GET applications   POST applications/drafts   GET applications/:id
     POST applications/:id/approve | send | reconcile   PATCH applications/:id/status   GET applications/:id/activity
     GET overview
+    GET/POST inbox   POST inbox/:id/link | apply   DELETE inbox/:id
+    GET/POST contacts   PATCH/DELETE contacts/:id   POST contacts/:id/suppress   GET companies
+    GET/POST resumes   GET/DELETE resumes/:id   POST resumes/:id/analyze | tailor
+    GET/POST followups   POST followups/:id/done | cancel
+    GET/PUT agent   POST agent/pause | resume | stop | run   GET agent/runs
+    GET analytics   GET prep/:jobId

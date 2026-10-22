@@ -10,6 +10,8 @@ export class ApplicationsController {
 
   @Get('overview') overview(@CurrentUser() u: AuthUser) { return this.svc.overview(u.id); }
 
+  @Get('overview/trends') trends(@CurrentUser() u: AuthUser) { return this.svc.trends(u.id); }
+
   @Get('applications') list(@CurrentUser() u: AuthUser, @Query(new ZodPipe(ListQuery)) q: any) { return this.svc.list(u.id, q); }
   @Post('applications/drafts') draft(@CurrentUser() u: AuthUser, @Body(new ZodPipe(DraftDto)) dto: any) { return this.svc.createDraft(u.id, dto); }
   @Get('applications/:id') get(@CurrentUser() u: AuthUser, @Param('id', ObjectIdPipe) id: string) { return this.svc.get(u.id, id); }

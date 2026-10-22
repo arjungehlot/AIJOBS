@@ -1,6 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { ChangeEvent, useEffect, useState } from 'react';
+import { Gauge } from '@/components/charts';
 import { api, errText } from '@/lib/api';
 
 type Form = Record<string, string>;
@@ -116,14 +117,13 @@ export default function Analyzer() {
   const canAnalyze = tab === 'text' ? text.trim().length >= 40 : !!image;
   return (
     <>
-      <h1>Job Analyzer</h1>
-      <p className="muted" style={{ margin: 0 }}>Add a job from pasted text or a screenshot. You review everything before it is saved.</p>
+      <div className="ph"><div><h1>Job Analyzer</h1><p>Add a job from pasted text or a screenshot. You review everything before it is saved.</p></div></div>
       {err && <div className="msg err" role="alert">{err}</div>}
 
       <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <div role="tablist" className="row">
-          <button role="tab" aria-selected={tab === 'text'} className={`btn ${tab === 'text' ? 'primary' : ''}`} onClick={() => setTab('text')}>Paste text</button>
-          <button role="tab" aria-selected={tab === 'image'} className={`btn ${tab === 'image' ? 'primary' : ''}`} onClick={() => setTab('image')}>Screenshot</button>
+        <div role="tablist" className="seg" style={{ alignSelf: 'flex-start' }}>
+          <button role="tab" aria-selected={tab === 'text'} onClick={() => setTab('text')}>Paste text</button>
+          <button role="tab" aria-selected={tab === 'image'} onClick={() => setTab('image')}>Screenshot</button>
         </div>
         {tab === 'text' ? (
           <label className="f">Job description<textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="Paste the full job post (at least 40 characters)" /></label>
@@ -174,7 +174,7 @@ export default function Analyzer() {
       {report && (
         <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div className="row" style={{ alignItems: 'center' }}>
-            <b style={{ fontSize: 32 }}>{report.score}</b><span className="muted">of 100</span>
+            <Gauge value={report.score} label="Match score" color={report.score >= 80 ? '#10B981' : report.score >= 60 ? '#4F46E5' : '#F59E0B'} />
             <span className={`pill ${report.recommendation === 'apply' ? 'ok' : report.recommendation === 'consider' ? 'warn' : 'bad'}`}>Recommendation: {report.recommendation}</span>
             <span className="pill">Confidence: {report.confidence}</span>
           </div>

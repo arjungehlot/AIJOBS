@@ -20,6 +20,7 @@ export class Application {
   @Prop({ required: true, maxlength: 300 }) subject: string;
   @Prop({ required: true, maxlength: 10000 }) body: string;
   @Prop({ required: true, default: 'draft' }) status: string;
+  @Prop({ type: Types.ObjectId }) resumeId?: Types.ObjectId;
   @Prop() matchScore?: number;
   @Prop() sentAt?: Date;
   @Prop() providerMessageId?: string;

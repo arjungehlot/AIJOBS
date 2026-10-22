@@ -2,6 +2,19 @@
 import { useEffect, useState } from 'react';
 import { api, errText } from '@/lib/api';
 
+// Mirrors the server state machine, minus statuses only the send pipeline may set. The server still enforces every rule.
+const MOVES: Record<string, string[]> = {
+  draft: ['closed'], awaiting_approval: ['closed'], approved: ['closed'], send_failed: ['closed'],
+  applied: ['hr_replied', 'withdrawn', 'closed'], hr_replied: ['interview', 'assessment', 'rejected', 'offer', 'closed'],
+  assessment: ['interview', 'rejected', 'closed'], interview: ['assessment', 'offer', 'rejected', 'closed'],
+  offer: ['accepted', 'rejected', 'withdrawn', 'closed'], rejected: ['closed'], accepted: ['closed'], withdrawn: ['closed'],
+};
+const COLS = [
+  { id: 'prep', t: 'To send', st: ['draft', 'awaiting_approval', 'approved', 'sending', 'send_failed', 'send_unknown'] },
+  { id: 'applied', t: 'Applied', st: ['applied'] }, { id: 'hr_replied', t: 'Replied', st: ['hr_replied'] },
+  { id: 'assessment', t: 'Assessment', st: ['assessment'] }, { id: 'interview', t: 'Interview', st: ['interview'] },
+  { id: 'offer', t: 'Offer', st: ['offer', 'accepted'] }, { id: 'done', t: 'Closed', st: ['rejected', 'withdrawn', 'closed', 'bounced'] },
+];
 const TONE: Record<string, string> = { applied: 'ok', approved: 'ok', send_failed: 'bad', bounced: 'bad', send_unknown: 'warn', awaiting_approval: 'warn' };
 
 export default function Applications() {
@@ -11,6 +24,7 @@ export default function Applications() {
   const [confirm, setConfirm] = useState<Record<string, boolean>>({});
   const [err, setErr] = useState('');
   const [note, setNote] = useState('');
+  const [view, setView] = useState<'board' | 'table'>('board');
 
   const load = () => api('/applications').then(setData).catch((e) => setErr(errText(e)));
   useEffect(() => { load(); }, []);
@@ -23,6 +37,10 @@ export default function Applications() {
       await load(); if (open === id) showTimeline(id);
     } catch (e) { setErr(errText(e)); }
   }
+  async function move(id: string, status: string) {
+    setErr(''); setNote('');
+    try { await api(`/applications/${id}/status`, { method: 'PATCH', body: { status } }); await load(); } catch (e) { setErr(errText(e)); }
+  }
   async function showTimeline(id: string) {
     setOpen(id);
     setTimeline(await api<any[]>(`/applications/${id}/activity`).catch(() => []));
@@ -30,10 +48,34 @@ export default function Applications() {
 
   return (
     <>
-      <h1>Application tracker</h1>
+      <div className="ph"><div><h1>Applications</h1><p>Approve, send and review the history of every application.</p></div>
+        <div className="seg" role="tablist"><button role="tab" aria-selected={view === 'board'} onClick={() => setView('board')}>Board</button><button role="tab" aria-selected={view === 'table'} onClick={() => setView('table')}>Table</button></div></div>
       {err && <div className="msg err" role="alert">{err}</div>}
       {note && <div className="msg warn">{note}</div>}
-      <section className="card scroll">
+      {view === 'board' && data && data.items.length > 0 && (
+        <div className="scroll" style={{ display: 'flex', gap: 10, alignItems: 'flex-start', paddingBottom: 6 }}>
+          {COLS.map((col) => {
+            const cards = data.items.filter((a) => col.st.includes(a.status));
+            return (
+              <section key={col.id} aria-label={col.t} style={{ flex: '0 0 218px', background: 'var(--line-2)', borderRadius: 12, padding: 8, minHeight: 120 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 4px 8px', fontWeight: 600 }}><span>{col.t}</span><span className="pill gray">{cards.length}</span></div>
+                {cards.map((a) => (
+                  <article key={a._id} className="card" style={{ padding: 10, marginBottom: 8 }}>
+                    <b style={{ display: 'block', lineHeight: 1.25 }}>{a.jobId?.title}</b><div className="faint">{a.jobId?.company}</div>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', margin: '6px 0' }}>
+                      <span className={`pill ${TONE[a.status] ?? ''}`}>{a.status.replace('_', ' ')}</span>{a.matchScore != null && <span className="faint">score {a.matchScore}</span>}
+                    </div>
+                    {MOVES[a.status] ? (
+                      <select aria-label={`Move ${a.jobId?.title}`} value="" onChange={(e) => e.target.value && move(a._id, e.target.value)} style={{ height: 28, fontSize: 12 }}>
+                        <option value="">Move to…</option>{MOVES[a.status].map((m) => <option key={m} value={m}>{m.replace('_', ' ')}</option>)}
+                      </select>
+                    ) : <span className="faint">Send from the table view</span>}
+                  </article>))}
+              </section>);
+          })}
+        </div>
+      )}
+      <section className="card scroll" hidden={view === 'board' && !!data?.items.length}>
         {!data ? <div className="muted">Loading</div> : data.items.length === 0 ? (
           <div className="empty">No applications yet. Analyze a job and save a draft to start.</div>
         ) : (
