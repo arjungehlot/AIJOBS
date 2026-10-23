@@ -9,7 +9,8 @@ import { AuditService } from '../audit/audit.service';
 import { CareerProfile } from '../career-profiles/career-profile.schema';
 import { extractSkills } from '../domain/ats';
 import { dedupeKey } from '../domain/dedupe';
-import { PARSERS, RawJob, SOURCES, SourceId, findApplyEmail, findPhone, isFresh, relevance, sourceUrl } from '../domain/job-sources';
+import { env } from '../common/env';
+import { PARSERS, RawJob, SOURCES, SourceId, findApplyEmail, findPhone, isFresh, relevance, sourceUrl, externalSearchLinks } from '../domain/job-sources';
 import { scoreMatch } from '../domain/scoring';
 import { Application } from '../applications/application.schema';
 import { Job, JobMatch } from '../jobs/job.schema';
@@ -30,7 +31,11 @@ export const CREDITS: Record<SourceId, { name: string; url: string }> = {
   arbeitnow: { name: 'Arbeitnow', url: 'https://www.arbeitnow.com' },
   remoteok: { name: 'Remote OK', url: 'https://remoteok.com' },
   jobicy: { name: 'Jobicy', url: 'https://jobicy.com' },
+  himalayas: { name: 'Himalayas', url: 'https://himalayas.app' },
+  themuse: { name: 'The Muse', url: 'https://www.themuse.com' },
+  adzuna: { name: 'Adzuna India', url: 'https://www.adzuna.in' },
 };
+const available = () => SOURCES.filter((id) => id !== 'adzuna' || env.adzunaConfigured);
 
 export interface ProgressStep { at: number; pct: number; text: string }
 interface SearchJob { userId: string; startedAt: number; pct: number; steps: ProgressStep[]; done: boolean; error?: string; result?: unknown }
@@ -52,7 +57,10 @@ export class DiscoveryService {
     private readonly audit: AuditService,
   ) {}
 
-  sources() { return SOURCES.map((id) => ({ id, ...CREDITS[id] })); }
+  sources() { return available().map((id) => ({ id, ...CREDITS[id] })); }
+
+  /** Pre-filled LinkedIn / Naukri / Indeed searches for the user to open. */
+  externalLinks(q: string, days: number) { return externalSearchLinks(q.slice(0, 120), Math.min(Math.max(days, 1), 30)); }
 
   /** Starts a search in the background and returns an id to poll. The steps reported are real, as they happen. */
   start(userId: string, dto: DiscoverInput) {
@@ -82,7 +90,8 @@ export class DiscoveryService {
     const profile = await this.profiles.findOne({ _id: dto.careerProfileId, userId }).lean();
     if (!profile) throw new NotFoundException('Career profile not found');
     if (!dto.query && !profile.targetTitles.length && !profile.skills.length) throw new BadRequestException('Add target job titles or skills to your career profile (or type a search) first.');
-    const ids = dto.sources ?? [...SOURCES];
+    const ids = (dto.sources ?? [...SOURCES]).filter((i) => available().includes(i));
+    if (!ids.length) throw new BadRequestException('No job sources are available.');
     const q = dto.query ?? profile.targetTitles[0] ?? profile.skills[0] ?? '';
 
     report(6, `Searching ${ids.length} job boards for “${q}”`);
@@ -90,7 +99,7 @@ export class DiscoveryService {
     const fetched = await Promise.all(ids.map(async (id) => {
       const done = (r: { id: SourceId; ok: boolean; error?: string; jobs: RawJob[] }) => { fetchedN++; report(6 + Math.round((fetchedN / ids.length) * 24), r.ok ? `${CREDITS[id].name}: ${r.jobs.length} openings found` : `${CREDITS[id].name}: unavailable (${r.error})`); return r; };
       try {
-        const res = await fetch(sourceUrl(id, q), { headers: { 'user-agent': UA, accept: 'application/json' }, signal: AbortSignal.timeout(20_000) });
+        const res = await fetch(sourceUrl(id, q, { adzunaId: env.adzunaId, adzunaKey: env.adzunaKey }), { headers: { 'user-agent': UA, accept: 'application/json' }, signal: AbortSignal.timeout(20_000) });
         if (!res.ok) return done({ id, ok: false, error: `HTTP ${res.status}`, jobs: [] });
         return done({ id, ok: true, jobs: PARSERS[id](await res.json()) });
       } catch { return done({ id, ok: false, error: 'could not connect', jobs: [] }); }
@@ -114,7 +123,7 @@ export class DiscoveryService {
     report(36, `Filtering: ${candidates.length} of ${fetched.reduce((n, f) => n + f.jobs.length, 0)} match your skills (${staleSkipped} older than ${maxAge} days skipped)`);
     const scored = candidates.map(({ j, r }) => {
       const skills = extractSkills(`${j.title} ${j.tags.join(' ')} ${j.description}`);
-      const facts = { company: j.company, title: j.title, description: j.description, location: j.location, workMode: j.workMode, employmentType: j.employmentType, requiredSkills: skills, preferredSkills: [] as string[], experienceMin: yearsIn(j.description), salaryMax: j.salaryMax };
+      const facts = { company: j.company, title: j.title, description: j.description, location: j.location, workMode: j.workMode, employmentType: j.employmentType, requiredSkills: skills, preferredSkills: [] as string[], experienceMin: yearsIn(j.description), salaryMax: j.salaryMax, currency: j.currency };
       return { j, r, facts, report: scoreMatch(profile as any, facts) };
     }).sort((a, b) => b.report.score - a.report.score || b.r - a.r).slice(0, dto.limit);
 

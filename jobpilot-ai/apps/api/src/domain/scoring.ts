@@ -6,7 +6,8 @@ export interface CandidateProfile {
   workModes: string[]; // remote | hybrid | onsite
   locations: string[];
   employmentTypes: string[];
-  minSalary?: number;
+  minSalary?: number; // per YEAR, in `currency`
+  currency?: string;
   excludedCompanies: string[];
   excludedKeywords: string[];
   minMatchScore: number;
@@ -23,7 +24,8 @@ export interface JobFacts {
   preferredSkills: string[];
   experienceMin?: number;
   experienceMax?: number;
-  salaryMax?: number;
+  salaryMax?: number; // per YEAR
+  currency?: string;
 }
 
 export interface BreakdownItem {
@@ -143,7 +145,11 @@ export function scoreMatch(p: CandidateProfile, j: JobFacts): MatchReport {
   }
 
   // Salary
-  if (j.salaryMax === undefined || p.minSalary === undefined) {
+  if (p.minSalary !== undefined && p.minSalary <= 0) p = { ...p, minSalary: undefined }; // 0 means "not set"
+  if (j.salaryMax !== undefined && p.minSalary !== undefined && j.currency && p.currency && j.currency.toUpperCase() !== p.currency.toUpperCase()) {
+    // Different currencies cannot be compared honestly without a live exchange rate, so this is left out of the score.
+    items.push(unknown('salary', 'Salary', WEIGHTS.salary, `Listed in ${j.currency.toUpperCase()}; your minimum is in ${p.currency.toUpperCase()}.`));
+  } else if (j.salaryMax === undefined || p.minSalary === undefined) {
     items.push(unknown('salary', 'Salary', WEIGHTS.salary,
       j.salaryMax === undefined ? 'Salary not listed.' : 'You have not set a minimum salary.'));
   } else if (j.salaryMax >= p.minSalary) {

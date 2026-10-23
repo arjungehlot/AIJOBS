@@ -60,3 +60,12 @@ test('a job with almost no information gets low confidence, never a fabricated s
   assert.equal(r.confidence, 'low');
   assert.equal(r.score, 0);
 });
+
+test('salary in a different currency is not compared, and a minimum of 0 counts as not set', () => {
+  const r = scoreMatch({ ...profile, minSalary: 600000, currency: 'INR' }, { ...job, salaryMax: 90000, currency: 'USD' });
+  const salary = r.breakdown.find((b) => b.key === 'salary')!;
+  assert.equal(salary.score, null);
+  assert.ok(!r.concerns.includes('Listed salary is below your minimum.'));
+  const z = scoreMatch({ ...profile, minSalary: 0 }, { ...job, salaryMax: 100 });
+  assert.equal(z.breakdown.find((b) => b.key === 'salary')!.score, null);
+});

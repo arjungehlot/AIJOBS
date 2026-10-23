@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { findApplyEmail, findPhone, fromArbeitnow, fromJobicy, fromRemoteOk, fromRemotive, htmlToText, isFresh, relevance, sourceUrl } from './job-sources.ts';
+import {
+  fromHimalayas, fromTheMuse, fromAdzuna, externalSearchLinks, findApplyEmail, findPhone, fromArbeitnow, fromJobicy, fromRemoteOk, fromRemotive, htmlToText, isFresh, relevance, sourceUrl } from './job-sources.ts';
 
 test('htmlToText keeps structure and decodes entities', () => {
   const t = htmlToText('<p>We&#39;re hiring &amp; growing</p><ul><li>Node.js</li><li>React</li></ul><script>x()</script>');
@@ -46,4 +47,20 @@ test('findPhone finds stated numbers and ignores plain numbers', () => {
   assert.equal(findPhone('Call HR on +91 98765 43210 today'), '+91 98765 43210');
   assert.equal(findPhone('WhatsApp 9876543210 for details'), '9876543210');
   assert.equal(findPhone('We have 1200 employees and were founded in 2015, salary 600000'), undefined);
+});
+
+test('Himalayas, The Muse and Adzuna normalise to the shared job shape', () => {
+  const h = fromHimalayas({ jobs: [{ guid: 'g1', title: 'React Dev', companyName: 'Acme', description: '<p>Email hr@acme.io</p>', pubDate: 1792668556, minSalary: 50000, maxSalary: 90000, currency: 'USD', salaryPeriod: 'annual', locationRestrictions: ['India'], applicationLink: 'https://x.test/a' }] });
+  assert.equal(h[0].company, 'Acme'); assert.equal(h[0].salaryMax, 90000); assert.equal(h[0].applicationEmail, 'hr@acme.io'); assert.equal(h[0].workMode, 'remote');
+  const m = fromTheMuse({ results: [{ id: 7, name: 'Engineer', contents: '<p>Hi</p>', publication_date: '2026-10-20T10:00:00Z', locations: [{ name: 'Remote' }], company: { name: 'Muse Co' }, refs: { landing_page: 'https://m.test/j' }, categories: [{ name: 'Software Engineering' }], levels: [] }] });
+  assert.equal(m[0].providerJobId, '7'); assert.equal(m[0].workMode, 'remote'); assert.equal(m[0].tags[0], 'Software Engineering');
+  const a = fromAdzuna({ results: [{ id: '9', title: 'Node Developer', description: 'Pune role', created: '2026-10-21T00:00:00Z', company: { display_name: 'Zed' }, location: { display_name: 'Pune, Maharashtra' }, redirect_url: 'https://a.test/r', salary_min: 600000, salary_max: 900000 }] });
+  assert.equal(a[0].currency, 'INR'); assert.equal(a[0].company, 'Zed');
+  assert.deepEqual(fromHimalayas({}), []);
+});
+test('external search links are pre-filled and Adzuna url carries its keys', () => {
+  const l = externalSearchLinks('Full Stack Developer', 5);
+  assert.ok(l.find((x) => x.id === 'linkedin')!.url.includes('keywords=Full%20Stack%20Developer') && l[0].url.includes('f_TPR=r432000'));
+  assert.ok(l.find((x) => x.id === 'naukri')!.url.includes('/full-stack-developer-jobs'));
+  assert.ok(sourceUrl('adzuna', 'node', { adzunaId: 'i', adzunaKey: 'k' }).includes('app_id=i&app_key=k'));
 });

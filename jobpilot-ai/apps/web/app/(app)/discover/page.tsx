@@ -45,6 +45,14 @@ export default function Discover() {
     return () => { dead = true; };
   }, []);
 
+  const [ext, setExt] = useState<{ id: string; name: string; url: string }[]>([]);
+  const extQ = f.query || profiles.find((p) => p._id === f.profileId)?.targetTitles?.[0] || '';
+  useEffect(() => {
+    if (!extQ) { setExt([]); return; }
+    const t = setTimeout(() => { api<any[]>(`/discovery/links?q=${encodeURIComponent(extQ)}&days=${f.maxAge}`).then(setExt).catch(() => setExt([])); }, 300);
+    return () => clearTimeout(t);
+  }, [extQ, f.maxAge]);
+
   async function search(e?: FormEvent) {
     e?.preventDefault(); setBusy(true); setErr(''); setOk(''); setRes(null); setSel({}); setSt({}); setSteps([]); setPct(0); setT0(Date.now());
     try {
@@ -202,6 +210,12 @@ export default function Discover() {
             <input type="checkbox" disabled={!ai?.configured} checked={f.enrich && !!ai?.configured} onChange={(e) => setF({ ...f, enrich: e.target.checked })} /><span>✨ AI review of top results{ai?.configured && <em className="jf-model">{ai.model}</em>}</span>
           </label>
         </div>
+        {ext.length > 0 && (
+          <div className="jf-row jf-ext" style={{ alignItems: 'center' }}>
+            <span className="jf-lab">Also search on</span>
+            {ext.map((x) => <a key={x.id} className="jf-xl" href={x.url} target="_blank" rel="noopener noreferrer">{x.name} ↗</a>)}
+            <span className="faint" style={{ fontSize: 11.5 }}>Opens a ready search for “{extQ}”. These sites have no public feed, so results can’t be imported here.</span>
+          </div>)}
       </form>
 
       <section className="card jf-def">

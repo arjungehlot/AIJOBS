@@ -7,6 +7,7 @@ import { DiscoverDto, DiscoveryService } from './discovery.service';
 export class DiscoveryController {
   constructor(private readonly svc: DiscoveryService) {}
   @Get('sources') sources() { return this.svc.sources(); }
+  @Get('links') links(@Query('q') q = '', @Query('days') days = '5') { return this.svc.externalLinks(q, Number(days) || 5); }
   @Post('start') start(@CurrentUser() u: AuthUser, @Body(new ZodPipe(DiscoverDto)) dto: any) { return this.svc.start(u.id, dto); }
   @Get('status/:id') status(@CurrentUser() u: AuthUser, @Param('id') id: string, @Query('since') since?: string) { return this.svc.status(u.id, id, Math.max(0, Number(since) || 0)); }
   @Post('search') search(@CurrentUser() u: AuthUser, @Body(new ZodPipe(DiscoverDto)) dto: any) { return this.svc.search(u.id, dto); }

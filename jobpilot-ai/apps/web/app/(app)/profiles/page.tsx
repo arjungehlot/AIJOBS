@@ -22,7 +22,9 @@ export default function Profiles() {
       const body = {
         name: f.get('name'), targetTitles: csv(f.get('titles')), skills: csv(f.get('skills')), yearsExperience: Number(f.get('years') || 0),
         workModes: f.getAll('modes'), locations: csv(f.get('locations')),
-        minSalary: f.get('salary') ? Number(f.get('salary')) : undefined,
+        // Stored per YEAR so it compares with job boards, which list yearly pay. A monthly figure is multiplied by 12.
+        minSalary: Number(f.get('salary')) > 0 ? Math.round(Number(f.get('salary')) * (f.get('period') === 'month' ? 12 : 1)) : undefined,
+        currency: String(f.get('currency') || 'INR'),
         excludedCompanies: csv(f.get('exCompanies')), excludedKeywords: csv(f.get('exKeywords')),
         minMatchScore: Number(f.get('min') || 70), maxDailyApplications: Number(f.get('daily') || 10),
       };
@@ -38,11 +40,19 @@ export default function Profiles() {
       <div className="ph"><div><h1>Career profiles</h1><p>Each profile has its own skills, preferences and limits. Matching and sending rules use the profile you pick.</p></div></div>
       {err && <div className="msg err" role="alert">{err}</div>}{ok && <div className="msg ok">{ok}</div>}
       <div className="pg-two">
-        <form className="card pg-form" onSubmit={create} key={edit?._id ?? 'new'}>
+        <form className="card pg-form" autoComplete="off" onSubmit={create} key={edit?._id ?? 'new'}>
           <div className="pg-h"><span className="ic" style={{ background: 'linear-gradient(135deg,#818CF8,#4F46E5)' }}>{edit ? '✎' : '＋'}</span><h2>{edit ? `Edit “${edit.name}”` : 'New profile'}</h2>{edit && <button type="button" className="btn sm" style={{ marginLeft: 'auto' }} onClick={() => setEdit(null)}>Cancel</button>}</div>
           <label className="az-f">Name<input name="name" required placeholder="Full Stack Developer" defaultValue={edit?.name} /></label>
-          <div className="pg-2"><label className="az-f">Years of experience<input name="years" type="number" min={0} step="0.5" placeholder="2" defaultValue={edit?.yearsExperience} /></label>
-            <label className="az-f">Minimum salary<input name="salary" type="number" min={0} placeholder="600000" defaultValue={edit?.minSalary} /></label></div>
+          <div className="pg-2"><label className="az-f">Years of experience<input name="years" type="number" min={0} step="0.5" placeholder="2" defaultValue={edit?.yearsExperience} /></label></div>
+          <div className="pg-2" style={{ gridTemplateColumns: '1fr' }}>
+            <label className="az-f">Minimum salary
+              <span className="pg-sal">
+                <input name="salary" type="number" min={0} placeholder={edit ? '' : '50000'} defaultValue={edit?.minSalary || undefined} />
+                <select name="currency" defaultValue={edit?.currency ?? 'INR'} aria-label="Currency"><option>INR</option><option>USD</option><option>EUR</option><option>GBP</option></select>
+                <select name="period" defaultValue={edit ? 'year' : 'month'} aria-label="Period"><option value="month">per month</option><option value="year">per year</option></select>
+              </span>
+              <small className="faint">Optional. Jobs paying less than this lose points. Leave empty to ignore salary.</small>
+            </label></div>
           <label className="az-f">Target job titles (comma separated)<input name="titles" placeholder="DevOps Engineer, Full Stack Developer" defaultValue={edit?.targetTitles?.join(', ')} /></label>
           <label className="az-f">Skills (comma separated)<input name="skills" placeholder="Node.js, React, TypeScript, PostgreSQL" defaultValue={edit?.skills?.join(', ')} /></label>
           <label className="az-f">Preferred cities<input name="locations" placeholder="Bengaluru, Pune" defaultValue={edit?.locations?.join(', ')} /></label>

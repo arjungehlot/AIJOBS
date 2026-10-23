@@ -38,6 +38,10 @@ export const env = {
   get googleClientId() { return process.env.GOOGLE_CLIENT_ID ?? ''; },
   get googleClientSecret() { return process.env.GOOGLE_CLIENT_SECRET ?? ''; },
   get gmailRedirectUri() { return process.env.GMAIL_REDIRECT_URI || `http://localhost:${process.env.PORT ?? 4000}/api/v1/integrations/gmail/callback`; },
+  /** Optional free keys from developer.adzuna.com. Adds India-wide listings. */
+  get adzunaId() { return (process.env.ADZUNA_APP_ID ?? '').trim(); },
+  get adzunaKey() { return (process.env.ADZUNA_APP_KEY ?? '').trim(); },
+  get adzunaConfigured() { return !!(process.env.ADZUNA_APP_ID && process.env.ADZUNA_APP_KEY); },
   get gmailConfigured() { return !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET); },
   get superAdminEmail() { return (process.env.SUPER_ADMIN_EMAIL ?? '').trim().toLowerCase(); },
   get superAdminPassword() { return process.env.SUPER_ADMIN_PASSWORD ?? ''; },

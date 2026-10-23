@@ -535,3 +535,11 @@ fieldset { border: 0; padding: 0; margin: 0; }
 .an-row .lo{font-size:10px;font-weight:600;color:#8A6D1F;background:#FEF3C7;border-radius:99px;padding:1px 7px}
 .an-row:not(:has(.lo)){grid-template-columns:84px 1fr 78px}
 @media (max-width:900px){.an-kpis{grid-template-columns:repeat(2,1fr)}.an-grid{grid-template-columns:1fr}}
+
+/* Profile salary field */
+.pg-sal{display:grid;grid-template-columns:minmax(0,1fr) 84px 118px;gap:8px}
+.pg-sal input,.pg-sal select{min-width:0;width:100%}
+
+/* Job Finder: external search links */
+.jf-xl{display:inline-flex;align-items:center;height:26px;padding:0 11px;border-radius:99px;border:1px solid var(--line);background:#fff;font-size:12px;font-weight:600;color:var(--ink-2)}
+.jf-xl:hover{border-color:var(--primary);color:var(--primary);background:var(--primary-50)}

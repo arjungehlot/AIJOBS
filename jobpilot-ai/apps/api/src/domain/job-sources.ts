@@ -75,20 +75,57 @@ export function fromJobicy(json: any): RawJob[] {
   })).filter(Boolean) as RawJob[];
 }
 
-export const SOURCES = ['remotive', 'arbeitnow', 'remoteok', 'jobicy'] as const;
+export function fromHimalayas(json: any): RawJob[] {
+  return (Array.isArray(json?.jobs) ? json.jobs : []).map((x: any) => {
+    const loc = Array.isArray(x.locationRestrictions) && x.locationRestrictions.length ? x.locationRestrictions.join(', ') : 'Worldwide';
+    const annual = !x.salaryPeriod || /year|annual/i.test(String(x.salaryPeriod));
+    return finish({
+      source: 'himalayas', providerJobId: String(x.guid ?? x.applicationLink ?? ''), company: str(x.companyName), title: str(x.title), description: htmlToText(x.description || x.excerpt).slice(0, 20000),
+      location: loc, workMode: 'remote', employmentType: str(x.employmentType, 50) || undefined, applicationUrl: str(x.applicationLink || x.guid, 500) || undefined,
+      salaryMin: annual ? num(x.minSalary) : undefined, salaryMax: annual ? num(x.maxSalary) : undefined, currency: annual && num(x.maxSalary) ? str(x.currency, 3) || 'USD' : undefined,
+      postedAt: date(x.pubDate), tags: Array.isArray(x.categories) ? x.categories.map((t: unknown) => str(t, 40)).filter(Boolean) : [],
+    });
+  }).filter(Boolean) as RawJob[];
+}
+
+export function fromTheMuse(json: any): RawJob[] {
+  return (Array.isArray(json?.results) ? json.results : []).map((x: any) => {
+    const loc = Array.isArray(x.locations) ? x.locations.map((l: any) => str(l?.name, 80)).filter(Boolean).join(', ') : '';
+    return finish({
+      source: 'themuse', providerJobId: String(x.id ?? ''), company: str(x.company?.name), title: str(x.name), description: htmlToText(x.contents).slice(0, 20000),
+      location: loc || undefined, workMode: mode(loc), applicationUrl: str(x.refs?.landing_page, 500) || undefined, postedAt: date(x.publication_date),
+      tags: [...(Array.isArray(x.categories) ? x.categories : []), ...(Array.isArray(x.levels) ? x.levels : [])].map((t: any) => str(t?.name, 40)).filter(Boolean),
+    });
+  }).filter(Boolean) as RawJob[];
+}
+
+/** Adzuna (India). Salaries are yearly INR. Descriptions are short snippets, so apply emails are rarely found. */
+export function fromAdzuna(json: any): RawJob[] {
+  return (Array.isArray(json?.results) ? json.results : []).map((x: any) => finish({
+    source: 'adzuna', providerJobId: String(x.id ?? ''), company: str(x.company?.display_name), title: htmlToText(x.title).slice(0, 300), description: htmlToText(x.description).slice(0, 20000),
+    location: str(x.location?.display_name) || undefined, workMode: mode(`${x.title ?? ''} ${x.description ?? ''}`), employmentType: str(x.contract_time, 50).replace(/_/g, ' ') || undefined,
+    applicationUrl: str(x.redirect_url, 500) || undefined, salaryMin: num(x.salary_min), salaryMax: num(x.salary_max), currency: num(x.salary_max) ? 'INR' : undefined,
+    postedAt: date(x.created), tags: x.category?.label ? [str(x.category.label, 40)] : [],
+  })).filter(Boolean) as RawJob[];
+}
+
+export const SOURCES = ['remotive', 'arbeitnow', 'remoteok', 'jobicy', 'himalayas', 'themuse', 'adzuna'] as const;
 export type SourceId = (typeof SOURCES)[number];
 
 /** Public, key-less endpoints. `q` is a free-text title/skill query. */
-export function sourceUrl(id: SourceId, q: string): string {
+export function sourceUrl(id: SourceId, q: string, keys: { adzunaId?: string; adzunaKey?: string } = {}): string {
   const e = encodeURIComponent(q);
   switch (id) {
     case 'remotive': return `https://remotive.com/api/remote-jobs?limit=60${q ? `&search=${e}` : ''}`;
     case 'arbeitnow': return 'https://www.arbeitnow.com/api/job-board-api';
     case 'remoteok': return 'https://remoteok.com/api';
     case 'jobicy': return `https://jobicy.com/api/v2/remote-jobs?count=50${q ? `&tag=${e}` : ''}`;
+    case 'himalayas': return q ? `https://himalayas.app/jobs/api/search?q=${e}&limit=20` : 'https://himalayas.app/jobs/api?limit=20';
+    case 'themuse': return 'https://www.themuse.com/api/public/jobs?page=1&descending=true';
+    case 'adzuna': return `https://api.adzuna.com/v1/api/jobs/in/search/1?app_id=${encodeURIComponent(keys.adzunaId ?? '')}&app_key=${encodeURIComponent(keys.adzunaKey ?? '')}&results_per_page=50&sort_by=date&max_days_old=30${q ? `&what=${e}` : ''}`;
   }
 }
-export const PARSERS: Record<SourceId, (j: any) => RawJob[]> = { remotive: fromRemotive, arbeitnow: fromArbeitnow, remoteok: fromRemoteOk, jobicy: fromJobicy };
+export const PARSERS: Record<SourceId, (j: any) => RawJob[]> = { remotive: fromRemotive, arbeitnow: fromArbeitnow, remoteok: fromRemoteOk, jobicy: fromJobicy, himalayas: fromHimalayas, themuse: fromTheMuse, adzuna: fromAdzuna };
 
 export interface Relevance { titles: string[]; skills: string[]; query?: string }
 /** Cheap pre-filter so only plausible jobs are stored and (later) sent to the AI. 0 = unrelated. */
@@ -111,4 +148,15 @@ export function relevance(j: Pick<RawJob, 'title' | 'description' | 'tags'>, r: 
 export function isFresh(postedAt: Date | undefined, maxAgeDays: number, now = new Date()): boolean {
   if (!postedAt || Number.isNaN(postedAt.getTime())) return true;
   return now.getTime() - postedAt.getTime() <= maxAgeDays * 86_400_000;
+}
+
+/** Pre-filled searches on sites that have no public API and forbid scraping. The user opens them; nothing is fetched here. */
+export function externalSearchLinks(q: string, days: number, location = 'India') {
+  const e = encodeURIComponent(q), l = encodeURIComponent(location);
+  return [
+    { id: 'linkedin', name: 'LinkedIn', url: `https://www.linkedin.com/jobs/search/?keywords=${e}&location=${l}&f_TPR=r${days * 86400}&sortBy=DD` },
+    { id: 'naukri', name: 'Naukri', url: `https://www.naukri.com/${q.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'jobs'}-jobs?jobAge=${days}` },
+    { id: 'indeed', name: 'Indeed', url: `https://in.indeed.com/jobs?q=${e}&l=${l}&fromage=${days}&sort=date` },
+    { id: 'wellfound', name: 'Wellfound', url: `https://wellfound.com/jobs?keywords=${e}` },
+  ];
 }
