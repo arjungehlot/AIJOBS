@@ -10,8 +10,9 @@ import { CareerProfile } from '../career-profiles/career-profile.schema';
 import { extractSkills } from '../domain/ats';
 import { dedupeKey } from '../domain/dedupe';
 import { env } from '../common/env';
-import { PARSERS, RawJob, SOURCES, SourceId, findApplyEmail, findPhone, isFresh, relevance, sourceUrl, externalSearchLinks } from '../domain/job-sources';
+import { PARSERS, fromAdzuna, RawJob, SOURCES, SourceId, findApplyEmail, findPhone, isFresh, relevance, sourceUrl, externalSearchLinks } from '../domain/job-sources';
 import { scoreMatch } from '../domain/scoring';
+import { COUNTRIES, inCountries } from '../domain/countries';
 import { Application } from '../applications/application.schema';
 import { Job, JobMatch } from '../jobs/job.schema';
 
@@ -23,6 +24,10 @@ export const DiscoverDto = z.object({
   enrich: z.boolean().default(true),
   /** Only postings from the last N days. Older ones are never shown. */
   maxAgeDays: z.number().int().min(1).max(30).default(5),
+  /** ISO codes. Empty or missing means every country. */
+  countries: z.array(z.string().length(2).transform((c) => c.toUpperCase())).max(40).optional(),
+  /** Keep postings that name no country ("Remote", "Worldwide") when a country filter is on. */
+  includeWorldwide: z.boolean().default(true),
 });
 export type DiscoverInput = z.infer<typeof DiscoverDto>;
 
@@ -57,10 +62,13 @@ export class DiscoveryService {
     private readonly audit: AuditService,
   ) {}
 
+  /** Countries offered in the filter. */
+  countries() { return COUNTRIES.map(({ code, name }) => ({ code, name })); }
+
   sources() { return available().map((id) => ({ id, ...CREDITS[id] })); }
 
   /** Pre-filled LinkedIn / Naukri / Indeed searches for the user to open. */
-  externalLinks(q: string, days: number) { return externalSearchLinks(q.slice(0, 120), Math.min(Math.max(days, 1), 30)); }
+  externalLinks(q: string, days: number, loc = '') { return externalSearchLinks(q.slice(0, 120), Math.min(Math.max(days, 1), 30), loc.slice(0, 60) || undefined); }
 
   /** Starts a search in the background and returns an id to poll. The steps reported are real, as they happen. */
   start(userId: string, dto: DiscoverInput) {
@@ -95,14 +103,24 @@ export class DiscoveryService {
     const q = dto.query ?? profile.targetTitles[0] ?? profile.skills[0] ?? '';
 
     report(6, `Searching ${ids.length} job boards for “${q}”`);
+    const wanted = dto.countries ?? [];
     let fetchedN = 0;
     const fetched = await Promise.all(ids.map(async (id) => {
       const done = (r: { id: SourceId; ok: boolean; error?: string; jobs: RawJob[] }) => { fetchedN++; report(6 + Math.round((fetchedN / ids.length) * 24), r.ok ? `${CREDITS[id].name}: ${r.jobs.length} openings found` : `${CREDITS[id].name}: unavailable (${r.error})`); return r; };
       try {
-        const res = await fetch(sourceUrl(id, q, { adzunaId: env.adzunaId, adzunaKey: env.adzunaKey }), { headers: { 'user-agent': UA, accept: 'application/json' }, signal: AbortSignal.timeout(20_000) });
-        if (!res.ok) return done({ id, ok: false, error: `HTTP ${res.status}`, jobs: [] });
-        return done({ id, ok: true, jobs: PARSERS[id](await res.json()) });
-      } catch { return done({ id, ok: false, error: 'could not connect', jobs: [] }); }
+        const keys = { adzunaId: env.adzunaId, adzunaKey: env.adzunaKey };
+        // Adzuna is one country per request: ask for every chosen country it covers (India when none chosen).
+        const adz = id === 'adzuna' ? (wanted.map((c) => COUNTRIES.find((x) => x.code === c)?.adzuna).filter(Boolean) as string[]) : [];
+        const calls = id === 'adzuna' ? (adz.length ? adz : wanted.length ? [] : ['in']).map((country) => ({ url: sourceUrl(id, q, { ...keys, country }), country })) : [{ url: sourceUrl(id, q, keys), country: 'in' }];
+        if (!calls.length) return done({ id, ok: true, jobs: [] }); // chosen countries are not covered by this source
+        const parts = await Promise.all(calls.map(async (c) => {
+          const res = await fetch(c.url, { headers: { 'user-agent': UA, accept: 'application/json' }, signal: AbortSignal.timeout(20_000) });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const json = await res.json();
+          return id === 'adzuna' ? fromAdzuna(json, c.country) : PARSERS[id](json);
+        }));
+        return done({ id, ok: true, jobs: parts.flat() });
+      } catch (e: any) { return done({ id, ok: false, error: /HTTP \d+/.test(String(e?.message)) ? String(e.message) : 'could not connect', jobs: [] }); }
     }));
     const sourceReport = fetched.map((f) => ({ id: f.id, ok: f.ok, count: f.jobs.length, error: (f as any).error ?? null, ...CREDITS[f.id] }));
 
@@ -110,11 +128,12 @@ export class DiscoveryService {
     const bad = profile.excludedKeywords.map((k) => k.toLowerCase());
     const seen = new Set<string>();
     const maxAge = dto.maxAgeDays ?? 5;
-    let staleSkipped = 0; const nowD = new Date();
+    let staleSkipped = 0; let countrySkipped = 0; const nowD = new Date();
     const rel = { titles: dto.query ? [] : profile.targetTitles, skills: profile.skills, query: dto.query };
     const candidates = fetched.flatMap((f) => f.jobs).filter((j) => {
       const k = `${j.source}:${j.providerJobId}`; if (seen.has(k)) return false; seen.add(k);
       if (!isFresh(j.postedAt, maxAge, nowD)) { staleSkipped++; return false; }
+      if (!inCountries(j.location, wanted, dto.includeWorldwide ?? true)) { countrySkipped++; return false; }
       if (excl.includes(j.company.toLowerCase())) return false;
       const hay = `${j.title} ${j.description}`.toLowerCase();
       return !bad.some((w) => hay.includes(w));
@@ -180,7 +199,7 @@ export class DiscoveryService {
     const appRows = await this.apps.find({ userId, jobId: { $in: stored.map((x) => x.id) } }).select('jobId status sentAt lastError').lean();
     const appBy = new Map(appRows.map((a: any) => [String(a.jobId), a]));
     return {
-      query: q, staleSkipped, maxAgeDays: maxAge, scanned: fetched.reduce((n, f) => n + f.jobs.length, 0), relevant: candidates.length, sources: sourceReport, aiNote,
+      query: q, staleSkipped, countrySkipped, countries: wanted, maxAgeDays: maxAge, scanned: fetched.reduce((n, f) => n + f.jobs.length, 0), relevant: candidates.length, sources: sourceReport, aiNote,
       items: stored.map((s) => ({
         jobId: String(s.id), isNew: s.isNew, source: s.row.j.source, company: s.row.j.company, title: s.row.j.title, location: s.row.j.location ?? null, workMode: s.row.j.workMode ?? null,
         score: s.row.report.score, recommendation: s.row.report.recommendation, matched: s.row.report.matchedRequired, missing: s.row.report.missingRequired,

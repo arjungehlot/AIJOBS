@@ -99,12 +99,13 @@ export function fromTheMuse(json: any): RawJob[] {
   }).filter(Boolean) as RawJob[];
 }
 
-/** Adzuna (India). Salaries are yearly INR. Descriptions are short snippets, so apply emails are rarely found. */
-export function fromAdzuna(json: any): RawJob[] {
+/** Adzuna, one country per call. Salaries are yearly, in that country's currency. Descriptions are short snippets, so apply emails are rarely found. */
+const ADZ_CUR: Record<string, string> = { in: 'INR', us: 'USD', gb: 'GBP', ca: 'CAD', au: 'AUD', de: 'EUR', fr: 'EUR', nl: 'EUR', es: 'EUR', it: 'EUR', at: 'EUR', be: 'EUR', pl: 'PLN', sg: 'SGD', nz: 'NZD', za: 'ZAR', br: 'BRL', mx: 'MXN', ch: 'CHF' };
+export function fromAdzuna(json: any, country = 'in'): RawJob[] {
   return (Array.isArray(json?.results) ? json.results : []).map((x: any) => finish({
     source: 'adzuna', providerJobId: String(x.id ?? ''), company: str(x.company?.display_name), title: htmlToText(x.title).slice(0, 300), description: htmlToText(x.description).slice(0, 20000),
     location: str(x.location?.display_name) || undefined, workMode: mode(`${x.title ?? ''} ${x.description ?? ''}`), employmentType: str(x.contract_time, 50).replace(/_/g, ' ') || undefined,
-    applicationUrl: str(x.redirect_url, 500) || undefined, salaryMin: num(x.salary_min), salaryMax: num(x.salary_max), currency: num(x.salary_max) ? 'INR' : undefined,
+    applicationUrl: str(x.redirect_url, 500) || undefined, salaryMin: num(x.salary_min), salaryMax: num(x.salary_max), currency: num(x.salary_max) ? ADZ_CUR[country] ?? undefined : undefined,
     postedAt: date(x.created), tags: x.category?.label ? [str(x.category.label, 40)] : [],
   })).filter(Boolean) as RawJob[];
 }
@@ -113,7 +114,7 @@ export const SOURCES = ['remotive', 'arbeitnow', 'remoteok', 'jobicy', 'himalaya
 export type SourceId = (typeof SOURCES)[number];
 
 /** Public, key-less endpoints. `q` is a free-text title/skill query. */
-export function sourceUrl(id: SourceId, q: string, keys: { adzunaId?: string; adzunaKey?: string } = {}): string {
+export function sourceUrl(id: SourceId, q: string, keys: { adzunaId?: string; adzunaKey?: string; country?: string } = {}): string {
   const e = encodeURIComponent(q);
   switch (id) {
     case 'remotive': return `https://remotive.com/api/remote-jobs?limit=60${q ? `&search=${e}` : ''}`;
@@ -122,7 +123,7 @@ export function sourceUrl(id: SourceId, q: string, keys: { adzunaId?: string; ad
     case 'jobicy': return `https://jobicy.com/api/v2/remote-jobs?count=50${q ? `&tag=${e}` : ''}`;
     case 'himalayas': return q ? `https://himalayas.app/jobs/api/search?q=${e}&limit=20` : 'https://himalayas.app/jobs/api?limit=20';
     case 'themuse': return 'https://www.themuse.com/api/public/jobs?page=1&descending=true';
-    case 'adzuna': return `https://api.adzuna.com/v1/api/jobs/in/search/1?app_id=${encodeURIComponent(keys.adzunaId ?? '')}&app_key=${encodeURIComponent(keys.adzunaKey ?? '')}&results_per_page=50&sort_by=date&max_days_old=30${q ? `&what=${e}` : ''}`;
+    case 'adzuna': return `https://api.adzuna.com/v1/api/jobs/${keys.country ?? 'in'}/search/1?app_id=${encodeURIComponent(keys.adzunaId ?? '')}&app_key=${encodeURIComponent(keys.adzunaKey ?? '')}&results_per_page=50&sort_by=date&max_days_old=30${q ? `&what=${e}` : ''}`;
   }
 }
 export const PARSERS: Record<SourceId, (j: any) => RawJob[]> = { remotive: fromRemotive, arbeitnow: fromArbeitnow, remoteok: fromRemoteOk, jobicy: fromJobicy, himalayas: fromHimalayas, themuse: fromTheMuse, adzuna: fromAdzuna };

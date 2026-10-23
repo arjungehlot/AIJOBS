@@ -3,6 +3,7 @@ import { FormEvent, useEffect, useRef, useState } from 'react';
 import { Icon } from '@/components/ui';
 import { SearchProgress, Step, Thinking } from '@/components/progress';
 import { api, errText } from '@/lib/api';
+import { CountryPicker, CountryOpt } from '@/components/CountryPicker';
 
 const REC: Record<string, { l: string; c: string }> = { apply: { l: 'Strong match', c: 'ok' }, consider: { l: 'Consider', c: 'warn' }, skip: { l: 'Weak match', c: 'gray' } };
 const scoreColor = (n: number) => (n >= 75 ? 'var(--ok)' : n >= 55 ? '#F59E0B' : '#94A3B8');
@@ -45,19 +46,21 @@ export default function Discover() {
     return () => { dead = true; };
   }, []);
 
+  const [countries, setCountries] = useState<CountryOpt[]>([]); const [cc, setCc] = useState<string[]>([]); const [ww, setWw] = useState(true);
+  useEffect(() => { api<CountryOpt[]>('/discovery/countries').then(setCountries).catch(() => setCountries([])); }, []);
   const [ext, setExt] = useState<{ id: string; name: string; url: string }[]>([]);
   const extQ = f.query || profiles.find((p) => p._id === f.profileId)?.targetTitles?.[0] || '';
   useEffect(() => {
     if (!extQ) { setExt([]); return; }
-    const t = setTimeout(() => { api<any[]>(`/discovery/links?q=${encodeURIComponent(extQ)}&days=${f.maxAge}`).then(setExt).catch(() => setExt([])); }, 300);
+    const t = setTimeout(() => { api<any[]>(`/discovery/links?q=${encodeURIComponent(extQ)}&days=${f.maxAge}${cc.length ? `&loc=${encodeURIComponent(countries.find((c) => c.code === cc[0])?.name ?? '')}` : ''}`).then(setExt).catch(() => setExt([])); }, 300);
     return () => clearTimeout(t);
-  }, [extQ, f.maxAge]);
+  }, [extQ, f.maxAge, cc, countries]);
 
   async function search(e?: FormEvent) {
     e?.preventDefault(); setBusy(true); setErr(''); setOk(''); setRes(null); setSel({}); setSt({}); setSteps([]); setPct(0); setT0(Date.now());
     try {
       const sel = Object.keys(on).filter((k) => on[k]);
-      const { id } = await api('/discovery/start', { body: { careerProfileId: f.profileId, query: f.query || undefined, sources: sel.length ? sel : undefined, limit: f.limit, enrich: f.enrich, maxAgeDays: f.maxAge } });
+      const { id } = await api('/discovery/start', { body: { careerProfileId: f.profileId, query: f.query || undefined, sources: sel.length ? sel : undefined, limit: f.limit, enrich: f.enrich, maxAgeDays: f.maxAge, countries: cc.length ? cc : undefined, includeWorldwide: ww } });
       let seen = 0;
       // The server reports each real step as it happens; we poll for new ones.
       let fails = 0;
@@ -198,6 +201,7 @@ export default function Discover() {
           <label className="az-f" style={{ flex: '1 1 190px' }}>Career profile<select value={f.profileId} onChange={(e) => setF({ ...f, profileId: e.target.value })}>{profiles.length === 0 && <option value="">Create a profile first</option>}{profiles.map((p) => <option key={p._id} value={p._id}>{p.name}</option>)}</select></label>
           <label className="az-f" style={{ flex: '3 1 260px' }}>Search
             <span className="jf-q"><Icon name="search" size={14} /><input placeholder="Optional · e.g. Node.js backend developer (defaults to your target titles)" value={f.query} onChange={(e) => setF({ ...f, query: e.target.value })} /></span></label>
+          <div className="az-f" style={{ flex: '0 0 150px' }}>Country<CountryPicker options={countries} value={cc} onChange={setCc} worldwide={ww} onWorldwide={setWw} /></div>
           <label className="az-f" style={{ flex: '0 0 118px' }}>Posted within<select value={f.maxAge} onChange={(e) => setF({ ...f, maxAge: Number(e.target.value) })}>{[1, 2, 3, 5, 7, 14].map((n) => <option key={n} value={n}>{n === 1 ? '24 hours' : `${n} days`}</option>)}</select></label>
           <label className="az-f" style={{ flex: '0 0 84px' }}>Results<select value={f.limit} onChange={(e) => setF({ ...f, limit: Number(e.target.value) })}>{[10, 20, 30, 40].map((n) => <option key={n}>{n}</option>)}</select></label>
           <button className="btn primary jf-go" disabled={busy || !f.profileId}><Icon name="search" size={14} />{busy ? 'Searching…' : 'Find jobs'}</button>
@@ -261,7 +265,7 @@ export default function Discover() {
         <section className="card scroll">
           <div className="card-h">
             <h2>{items.length} openings</h2>
-            <span className="faint">{res.scanned} scanned · {res.relevant} relevant · {res.items.filter((i: any) => i.isNew).length} new{res.staleSkipped ? ` · ${res.staleSkipped} older than ${res.maxAgeDays} days hidden` : ''}</span>
+            <span className="faint">{res.scanned} scanned · {res.relevant} relevant · {res.items.filter((i: any) => i.isNew).length} new{res.staleSkipped ? ` · ${res.staleSkipped} older than ${res.maxAgeDays} days hidden` : ''}{res.countrySkipped ? ` · ${res.countrySkipped} outside chosen countries` : ''}</span>
             <span style={{ flex: 1 }} />
             <button type="button" className="btn sm" onClick={selectSuitable}>☑ Select suitable</button>
             <button type="button" className="btn sm" onClick={refreshStatus}>↻ Check status</button>

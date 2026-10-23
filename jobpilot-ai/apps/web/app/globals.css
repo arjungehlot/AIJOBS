@@ -717,3 +717,20 @@ fieldset { border: 0; padding: 0; margin: 0; }
 .lp2 .stats > div { flex: 1; padding: 12px 14px 0 0; } .lp2 .stats > div + div { padding-left: 14px; border-left: 1px solid #DDE0F5; }
 .lp2 .stats dt { font-family: var(--display), system-ui; font-size: 22px; line-height: 1.1; font-weight: 700; letter-spacing: -.03em; color: var(--ind); }
 .lp2 .stats dd { margin: 3px 0 0; font-size: 12px; line-height: 1.35; color: #5B6285; }
+
+/* Country multi-select */
+.ctry { position: relative; }
+.ctry-btn { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 6px; height: 38px; padding: 0 10px; border: 1px solid var(--border, #d9dde5); border-radius: 10px; background: var(--card, #fff); color: inherit; font: inherit; cursor: pointer; white-space: nowrap; }
+.ctry-btn span:first-child { overflow: hidden; text-overflow: ellipsis; }
+.ctry-btn.on { border-color: var(--accent, #6366f1); }
+.ctry-caret { opacity: .6; font-size: 11px; }
+.ctry-pop { position: absolute; z-index: 30; top: calc(100% + 6px); left: 0; width: 280px; max-width: 86vw; background: var(--card, #fff); border: 1px solid var(--border, #d9dde5); border-radius: 12px; box-shadow: 0 14px 40px rgba(15,23,42,.18); padding: 10px; display: grid; gap: 8px; }
+.ctry-q { height: 34px; border: 1px solid var(--border, #d9dde5); border-radius: 8px; padding: 0 10px; font: inherit; background: transparent; color: inherit; }
+.ctry-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.ctry-chips button { border: 0; border-radius: 999px; padding: 2px 9px; font-size: 12px; background: color-mix(in srgb, var(--accent, #6366f1) 14%, transparent); color: inherit; cursor: pointer; }
+.ctry-chips .clr { background: transparent; text-decoration: underline; opacity: .7; }
+.ctry-list { max-height: 210px; overflow: auto; display: grid; }
+.ctry-i { display: flex; align-items: center; gap: 8px; padding: 6px 6px; border-radius: 6px; cursor: pointer; font-size: 13.5px; }
+.ctry-i:hover { background: color-mix(in srgb, var(--accent, #6366f1) 8%, transparent); }
+.ctry-none { padding: 10px; opacity: .6; font-size: 13px; }
+.ctry-ww { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; padding-top: 6px; border-top: 1px solid var(--border, #d9dde5); opacity: .9; }
