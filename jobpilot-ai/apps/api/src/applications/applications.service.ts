@@ -6,7 +6,9 @@ import { createHash } from 'node:crypto';
 import { Model, Types } from 'mongoose';
 import { z } from 'zod';
 import { AiSettingsService } from '../ai/ai-settings.service';
-import { AI_PROVIDER, AiProvider } from '../ai/ai.provider';
+import { AI_PROVIDER, AiProvider, DraftContext } from '../ai/ai.provider';
+import { templateDraft } from '../ai/template-draft';
+import { env } from '../common/env';
 import { AuditService } from '../audit/audit.service';
 import { ResumesService } from '../resumes/resumes.service';
 import { scoreMatch } from '../domain/scoring';
@@ -35,6 +37,12 @@ export const AiDraftDto = z.object({
   resumeId: z.string().regex(/^[a-f0-9]{24}$/i).optional(),
   tone: z.enum(['professional', 'concise', 'friendly', 'technical']).default('professional'),
 });
+export const QuickSendDto = z.object({
+  jobId: z.string().regex(/^[a-f0-9]{24}$/i),
+  careerProfileId: z.string().regex(/^[a-f0-9]{24}$/i),
+  resumeId: z.string().regex(/^[a-f0-9]{24}$/i).optional(),
+});
+export const JobStatusDto = z.object({ jobIds: z.array(z.string().regex(/^[a-f0-9]{24}$/i)).min(1).max(100) });
 export const ApproveDto = z.object({ confirmRecipient: z.boolean().default(false) });
 export const StatusDto = z.object({ status: z.string() });
 export const ListQuery = z.object({
@@ -73,20 +81,70 @@ export class ApplicationsService {
     ]);
     if (!job) throw new NotFoundException('Job not found');
     if (!profile) throw new NotFoundException('Career profile not found');
-    const resume = await this.resumes.pick(userId, dto.resumeId);
+    const resume = await this.resumes.pick(userId, dto.resumeId ?? (await this.aiSettings.defaultResumeId(userId)));
     const report = scoreMatch(profile, job);
     const attached = resume ? await this.resumes.hasFile(userId, String(resume._id)) : false;
-    const draft = await this.ai.draftEmail({
+    const signature = (await this.aiSettings.signatureFor(userId)) || `Best regards,\n${user?.name ?? profile.name}`;
+    const ctx: DraftContext = {
       candidateName: user?.name ?? profile.name, jobTitle: job.title, company: job.company, tone: dto.tone,
       matchedSkills: [...report.matchedRequired, ...report.matchedPreferred], missingRequiredSkills: report.missingRequired,
-      yearsExperience: profile.yearsExperience, resumeAttached: attached,
+      yearsExperience: profile.yearsExperience, resumeAttached: attached, signatureAppended: true,
       resumeFacts: resume?.text?.slice(0, 3500), jobExcerpt: job.description?.slice(0, 1500),
-    }, { model: await this.aiSettings.modelFor(userId) });
+    };
+    let draft: { subject: string; body: string }; let provider = this.ai.name;
+    try { draft = await this.ai.draftEmail(ctx, { model: await this.aiSettings.modelFor(userId) }); }
+    catch { draft = templateDraft(ctx); provider = 'template'; } // AI unavailable or out of quota: the flow still works
+    draft = { subject: draft.subject, body: `${draft.body.replace(/\s+$/, '')}\n\n${signature}` };
     return {
       subject: draft.subject, body: draft.body, score: report.score, recommendation: report.recommendation,
       recipient: job.applicationEmail ? { email: job.applicationEmail, confidence: 'source_reported' as const } : null,
-      applicationUrl: job.applicationUrl ?? null, resumeId: resume ? String(resume._id) : null, resumeAttached: attached, provider: this.ai.name,
+      applicationUrl: job.applicationUrl ?? null, resumeId: resume ? String(resume._id) : null, resumeAttached: attached, provider,
     };
+  }
+
+  /**
+   * One click: write the email for this company, save it, approve it and send it through the normal send gate.
+   * Never bypasses a rule: daily limit, trusted recipient, job status and the atomic send claim all still apply.
+   */
+  async quickSend(userId: string, dto: z.infer<typeof QuickSendDto>) {
+    const job = await this.jobs.findOne({ _id: dto.jobId, userId }).lean();
+    if (!job) throw new NotFoundException('Job not found');
+    const existing = await this.apps.findOne({ userId, jobId: job._id });
+    if (existing && !['draft', 'awaiting_approval', 'approved'].includes(existing.status)) {
+      const m = existing.status === 'send_failed' ? `Earlier attempt failed: ${existing.lastError ?? 'unknown error'}. Open Applications to retry.` : `Already ${existing.status.replace('_', ' ')}.`;
+      return { jobId: dto.jobId, applicationId: String(existing._id), status: existing.status, ok: ['applied', 'hr_replied', 'interview', 'assessment', 'offer', 'accepted'].includes(existing.status), message: m, to: existing.recipient?.email };
+    }
+    const fail = (message: string, status = 'blocked') => ({ jobId: dto.jobId, applicationId: existing ? String(existing._id) : null, status, ok: false, message, to: job.applicationEmail });
+    if (env.mailProvider !== 'gmail') return fail('Real sending is off. Set MAIL_PROVIDER=gmail in the API .env and restart.');
+    if (!job.applicationEmail) return fail('This posting has no apply email. Use the posting link instead.');
+    const resume = await this.resumes.pick(userId, dto.resumeId ?? (await this.aiSettings.defaultResumeId(userId)));
+    if (!resume || !(await this.resumes.hasFile(userId, String(resume._id)))) return fail('No resume PDF on file. Upload one in Resume Studio so it can be attached.');
+    try {
+      let app = existing;
+      let score: number | undefined;
+      if (!app) {
+        const c = await this.compose(userId, { jobId: dto.jobId, careerProfileId: dto.careerProfileId, resumeId: String(resume._id), tone: 'professional' });
+        score = c.score;
+        const created = await this.createDraft(userId, {
+          jobId: dto.jobId, careerProfileId: dto.careerProfileId, recipientEmail: job.applicationEmail, recipientConfidence: 'source_reported',
+          subject: c.subject, body: c.body, matchScore: c.score, resumeId: String(resume._id),
+        });
+        app = await this.apps.findById(created._id);
+      }
+      const id = String(app!._id);
+      if (app!.status !== 'approved') await this.approve(userId, id, { confirmRecipient: false });
+      const r: any = await this.send(userId, id);
+      const status = r.status ?? 'applied';
+      return { jobId: dto.jobId, applicationId: id, status, ok: status === 'applied', message: r.message ?? (status === 'applied' ? 'Sent with your resume attached.' : status), to: job.applicationEmail, score, provider: this.ai.name };
+    } catch (e: any) {
+      return fail(String(e?.response?.message ?? e?.message ?? 'Could not send').slice(0, 240));
+    }
+  }
+
+  /** Where each job stands: sent, failed, replied. Lets the Job Finder show real status. */
+  async statusByJobs(userId: string, jobIds: string[]) {
+    const rows = await this.apps.find({ userId, jobId: { $in: jobIds } }).select('jobId status sentAt lastError recipient.email updatedAt').lean();
+    return Object.fromEntries(rows.map((a: any) => [String(a.jobId), { id: String(a._id), status: a.status, sentAt: a.sentAt ?? null, error: a.lastError ?? null, to: a.recipient?.email ?? null }]));
   }
 
   async createDraft(userId: string, dto: z.infer<typeof DraftDto>) {
@@ -163,7 +221,7 @@ export class ApplicationsService {
     const key = idempotencyKey(userId, id);
     try {
       const file = app.resumeId ? await this.resumes.file(userId, String(app.resumeId)) : null;
-      const sent = await this.mail.send({ userId, idempotencyKey: key, from: user.email, to: app.recipient.email, subject: app.subject, body: app.body, attachments: file ? [file] : undefined });
+      const sent = await this.mail.send({ userId, idempotencyKey: key, from: user.email, to: app.recipient.email, subject: app.subject, body: app.body, attachments: [...(file ? [file] : []), ...(await this.aiSettings.extraAttachments(userId))] });
       return this.markSent(userId, id, sent, 'user');
     } catch (e) {
       if (e instanceof MailOutcomeUnknownError) {

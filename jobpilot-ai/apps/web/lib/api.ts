@@ -27,6 +27,14 @@ export async function api<T = any>(path: string, init: { method?: string; body?:
   return data as T;
 }
 
+/** Authenticated file fetch (the token lives in localStorage, so a plain link cannot carry it). */
+export async function apiBlob(path: string): Promise<Blob> {
+  const t = token.get();
+  const res = await fetch(`${BASE}${path}`, { headers: t ? { authorization: `Bearer ${t}` } : {} });
+  if (!res.ok) { const d = await res.json().catch(() => ({})); throw new ApiError(res.status, d?.message ?? `Request failed (${res.status})`); }
+  return res.blob();
+}
+
 export const errText = (e: unknown) =>
   e instanceof ApiError ? (e.issues?.length ? `${e.message}: ${e.issues.map((i) => `${i.path} ${i.message}`).join('; ')}` : e.message)
     : 'Could not reach the server. Is the API running?';

@@ -202,11 +202,29 @@ export class GmailService {
     const t: any = await this.gget(access, `/threads/${encodeURIComponent(threadId)}?format=full`).catch(() => { throw new NotFoundException('Conversation not found'); });
     const messages = (t.messages ?? []).map((m: any) => {
       const h = (n: string) => (m.payload?.headers ?? []).find((x: any) => x.name.toLowerCase() === n)?.value ?? '';
-      const atts: string[] = []; const walk = (p: any) => { if (p?.filename) atts.push(p.filename); (p?.parts ?? []).forEach(walk); }; walk(m.payload);
+      const atts = findAttachments(m.payload).map(({ id, filename, mime, size }) => ({ id, filename, mime, size }));
       return { id: m.id, from: parseAddress(h('from')), to: h('to').slice(0, 300), subject: h('subject') || '(no subject)', date: new Date(Number(m.internalDate) || Date.now()), mine: parseAddress(h('from')).email === acct.email,
         body: (extractText(m.payload) || m.snippet || '').slice(0, 30_000), attachments: atts, messageIdHeader: h('message-id') };
     });
     return { threadId, messages };
+  }
+
+  /**
+   * Bytes of one attachment, for View / Download. The filename and type come from Gmail's own record of the part,
+   * never from the request, so a caller cannot choose what the browser is told the file is.
+   */
+  async getAttachment(userId: string, messageId: string, partKey: string) {
+    const { access } = await this.authed(userId);
+    const msg: any = await this.gget(access, `/messages/${encodeURIComponent(messageId)}?format=full`).catch(() => { throw new NotFoundException('Message not found'); });
+    const part = findAttachments(msg.payload).find((x) => x.id === partKey);
+    if (!part) throw new NotFoundException('Attachment not found');
+    let data: Buffer;
+    if (part.attachmentId) {
+      const r: any = await this.gget(access, `/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(part.attachmentId)}`).catch(() => { throw new BadRequestException('Could not download this attachment from Gmail'); });
+      data = Buffer.from(String(r.data ?? ''), 'base64url');
+    } else data = Buffer.from(part.inlineData ?? '', 'base64url');
+    if (data.length > 25 * 1024 * 1024) throw new BadRequestException('Attachment is too large to open here');
+    return { filename: part.filename, mime: part.mime, data };
   }
 
   /** Reply status for sent conversations. Based on whether anyone other than you wrote in the thread. No tracking pixels. */
@@ -273,4 +291,15 @@ export class GmailService {
     if (!res.ok) throw new Error(`HTTP ${res.status}`); // body deliberately not included: it can echo secrets
     return j;
   }
+}
+
+/** Real attachments of a Gmail payload (parts that carry a filename). `id` is stable per message: the part's position. */
+export function findAttachments(payload: any): { id: string; filename: string; mime: string; size: number; attachmentId?: string; inlineData?: string }[] {
+  const out: any[] = [];
+  const walk = (p: any, path: string) => {
+    if (p?.filename) out.push({ id: path || '0', filename: String(p.filename).slice(0, 200), mime: String(p.mimeType ?? 'application/octet-stream'), size: Number(p.body?.size ?? 0), attachmentId: p.body?.attachmentId, inlineData: p.body?.data });
+    (p?.parts ?? []).forEach((c: any, i: number) => walk(c, path ? `${path}.${i}` : String(i)));
+  };
+  walk(payload, '');
+  return out.map(({ inlineData, ...o }) => ({ ...o, inlineData }));
 }

@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundEx
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { z } from 'zod';
+import { toBuffer } from '../domain/bytes';
 import { AiSettingsService } from '../ai/ai-settings.service';
 import { AI_PROVIDER, AiProvider } from '../ai/ai.provider';
 import { AuditService } from '../audit/audit.service';
@@ -63,10 +64,19 @@ export class ResumesService {
     const limit = LIMITS[plan] ?? 3;
     if ((await this.model.countDocuments({ userId })) >= limit) throw new ForbiddenException(`Your plan allows ${limit} resume versions`);
     const model = await this.aiSettings.modelFor(userId);
-    const parsed = await this.ai.parseResume(
-      dto.mime === 'application/pdf' ? { kind: 'pdf', base64: dto.base64 } : { kind: 'text', text: bytes.toString('utf8') }, { model });
+    let parsed: { text: string; skills: string[]; name?: string; yearsExperience?: number; titles: string[] };
+    let readable = true;
+    try {
+      parsed = await this.ai.parseResume(
+        dto.mime === 'application/pdf' ? { kind: 'pdf', base64: dto.base64 } : { kind: 'text', text: bytes.toString('utf8') }, { model });
+    } catch (e) {
+      // The file itself is what gets attached. If AI cannot read it right now (quota, no key), still keep the file.
+      if (dto.mime !== 'application/pdf') throw e;
+      readable = false;
+      parsed = { text: `Resume file: ${dto.filename}. Its text could not be read automatically; emails will rely on your career profile.`, skills: [], titles: [] };
+    }
     const text = parsed.text.trim();
-    if (text.length < 80) throw new BadRequestException('Not enough readable text in this file. Use a text-based PDF (not a scan).');
+    if (readable && text.length < 80) throw new BadRequestException('Not enough readable text in this file. Use a text-based PDF (not a scan).');
     const skills = [...new Set([...extractSkills(text), ...parsed.skills.map((s) => s.toLowerCase())])].slice(0, 80);
     const r = await this.model.create({
       userId, title: dto.title, targetRole: dto.targetRole, text: text.slice(0, 60000), skills,
@@ -74,7 +84,7 @@ export class ResumesService {
     });
     await this.audit.record({ userId, actor: 'user', action: 'resume.uploaded', entityType: 'resume', entityId: String(r._id), result: 'success', meta: { bytes: bytes.length, mime: dto.mime } });
     const { fileData: _omit, ...safe } = r.toObject();
-    return { ...safe, hints: { name: parsed.name, yearsExperience: parsed.yearsExperience, titles: parsed.titles } };
+    return { ...safe, readable, hints: { name: parsed.name, yearsExperience: parsed.yearsExperience, titles: parsed.titles } };
   }
 
   /** The chosen resume, else the newest original. Text only (the file bytes are never loaded here). */
@@ -88,7 +98,10 @@ export class ResumesService {
   async file(userId: string, id: string) {
     const r = await this.model.findOne({ _id: id, userId }).select('+fileData fileName fileMime').lean();
     if (!r?.fileData) return null;
-    return { filename: r.fileName ?? 'resume.pdf', mime: r.fileMime ?? 'application/pdf', data: Buffer.from(r.fileData as any) };
+    const data = toBuffer(r.fileData);
+    const mime = r.fileMime ?? 'application/pdf';
+    if (mime === 'application/pdf' && data.subarray(0, 5).toString() !== '%PDF-') return null; // never attach a damaged file
+    return { filename: r.fileName ?? 'resume.pdf', mime, data };
   }
 
   async remove(userId: string, id: string) {

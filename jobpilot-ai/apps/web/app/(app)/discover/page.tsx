@@ -10,27 +10,46 @@ const ago = (d?: string) => { if (!d) return ''; const n = Math.floor((Date.now(
 
 export default function Discover() {
   const [profiles, setProfiles] = useState<any[]>([]); const [resumes, setResumes] = useState<any[]>([]); const [sources, setSources] = useState<any[]>([]);
-  const [f, setF] = useState({ profileId: '', query: '', limit: 20, enrich: true }); const [on, setOn] = useState<Record<string, boolean>>({});
+  const [f, setF] = useState({ profileId: '', query: '', limit: 20, enrich: true, maxAge: 5 }); const [on, setOn] = useState<Record<string, boolean>>({});
   const [res, setRes] = useState<any>(null); const [busy, setBusy] = useState(false); const [err, setErr] = useState(''); const [ok, setOk] = useState('');
   const [ai, setAi] = useState<any>(null); const [mail, setMail] = useState<any>(null);
   const [draft, setDraft] = useState<any>(null); // right-side panel
   const [min, setMin] = useState(0);
+  const [sel, setSel] = useState<Record<string, boolean>>({}); const [st, setSt] = useState<Record<string, any>>({}); const [sending, setSending] = useState(false);
+  const [resumeId, setResumeId] = useState(''); const [upBusy, setUpBusy] = useState(false);
+  const [defs, setDefs] = useState<any>({ signature: '', defaultResumeId: null, attachments: [] }); const [defsOpen, setDefsOpen] = useState(false); const [extraBusy, setExtraBusy] = useState(false);
+  const [sig, setSig] = useState(''); const [sigOpen, setSigOpen] = useState(false); const [sigSaved, setSigSaved] = useState('');
   const [steps, setSteps] = useState<Step[]>([]); const [pct, setPct] = useState(0); const [t0, setT0] = useState(0); const alive = useRef(true);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []); // set true on mount too: React dev StrictMode runs cleanup once, which used to stop polling for good
 
   useEffect(() => {
-    api<any[]>('/career-profiles').then((p) => { setProfiles(p); if (p[0]) setF((x) => ({ ...x, profileId: p[0]._id })); }).catch((e) => setErr(errText(e)));
-    api<any[]>('/resumes').then(setResumes).catch(() => undefined);
-    api<any[]>('/discovery/sources').then((s) => { setSources(s); setOn(Object.fromEntries(s.map((x) => [x.id, true]))); }).catch(() => undefined);
-    api('/ai/settings').then(setAi).catch(() => undefined);
-    api('/integrations/gmail/status').then(setMail).catch(() => undefined);
+    let dead = false;
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    // Initial data. The API may still be starting or reloading, so retry a few times before showing an error.
+    async function load<T>(path: string, apply: (r: T) => void, tries = 4) {
+      for (let i = 0; i < tries && !dead; i++) {
+        try { apply(await api<T>(path)); return true; } catch { await sleep(1200 * (i + 1)); }
+      }
+      return false;
+    }
+    (async () => {
+      const okP = await load<any[]>('/career-profiles', (p) => { setProfiles(p); if (p[0]) setF((x) => ({ ...x, profileId: p[0]._id })); });
+      if (!okP && !dead) setErr('Could not reach the server. Is the API running? Reload the page once it is up.'); else setErr('');
+    })();
+    load<any[]>('/resumes', setResumes);
+    load<any[]>('/discovery/sources', (s) => { setSources(s); setOn(Object.fromEntries(s.map((x: any) => [x.id, true]))); });
+    load('/ai/settings', setAi);
+    // Saved defaults come from the database, so they are the same after a refresh or on another device.
+    load<any>('/ai/defaults', (r) => { setDefs(r); setSig(r.signature ?? ''); setSigSaved(r.signature ?? ''); if (r.defaultResumeId) setResumeId(r.defaultResumeId); setDefsOpen(!r.signature && !r.attachments?.length && !r.defaultResumeId); });
+    load('/integrations/gmail/status', setMail);
+    return () => { dead = true; };
   }, []);
 
   async function search(e?: FormEvent) {
-    e?.preventDefault(); setBusy(true); setErr(''); setOk(''); setRes(null); setSteps([]); setPct(0); setT0(Date.now());
+    e?.preventDefault(); setBusy(true); setErr(''); setOk(''); setRes(null); setSel({}); setSt({}); setSteps([]); setPct(0); setT0(Date.now());
     try {
       const sel = Object.keys(on).filter((k) => on[k]);
-      const { id } = await api('/discovery/start', { body: { careerProfileId: f.profileId, query: f.query || undefined, sources: sel.length ? sel : undefined, limit: f.limit, enrich: f.enrich } });
+      const { id } = await api('/discovery/start', { body: { careerProfileId: f.profileId, query: f.query || undefined, sources: sel.length ? sel : undefined, limit: f.limit, enrich: f.enrich, maxAgeDays: f.maxAge } });
       let seen = 0;
       // The server reports each real step as it happens; we poll for new ones.
       let fails = 0;
@@ -53,8 +72,7 @@ export default function Discover() {
   async function writeEmail(it: any) {
     setErr(''); setOk(''); setDraft({ job: it, loading: true });
     try {
-      const resumeId = resumes.find((r) => r.fileName)?._id ?? resumes[0]?._id;
-      const d = await api('/applications/ai-draft', { body: { jobId: it.jobId, careerProfileId: f.profileId, resumeId, tone: 'professional' } });
+      const d = await api('/applications/ai-draft', { body: { jobId: it.jobId, careerProfileId: f.profileId, resumeId: resume?._id, tone: 'professional' } });
       setDraft({ job: it, ...d, to: d.recipient?.email ?? '', resumeId: d.resumeId, loading: false });
     } catch (x) { setDraft(null); setErr(errText(x)); }
   }
@@ -71,6 +89,94 @@ export default function Discover() {
     } catch (x) { setErr(errText(x)); } finally { setBusy(false); }
   }
 
+  const profile = profiles.find((p) => p._id === f.profileId);
+  const resumeFiles = resumes.filter((r) => r.fileName);
+  const resume = resumeFiles.find((r) => r._id === resumeId) ?? resumeFiles[0] ?? null;
+  const sentLike = ['applied', 'hr_replied', 'interview', 'assessment', 'offer', 'accepted'];
+  const appOf = (it: any) => st[it.jobId] ?? it.application ?? null;
+  const canPick = (it: any) => it.applyMethod === 'email' && !sentLike.includes(appOf(it)?.status) && appOf(it)?.state !== 'sending';
+  const picked = (res?.items ?? []).filter((it: any) => sel[it.jobId] && canPick(it));
+
+  async function uploadResume(file: File, rewrite?: any) {
+    setErr(''); setOk('');
+    if (file.type !== 'application/pdf') { setErr('Attach a PDF file.'); return; }
+    if (file.size > 4 * 1024 * 1024) { setErr('The PDF is larger than 4 MB.'); return; }
+    setUpBusy(true);
+    try {
+      const b64 = await new Promise<string>((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1] ?? ''); r.onerror = () => rej(new Error('Could not read the file')); r.readAsDataURL(file); });
+      const r = await api('/resumes/upload', { body: { title: file.name.replace(/\.[^.]+$/, ''), filename: file.name, mime: 'application/pdf', base64: b64 } });
+      const list = await api<any[]>('/resumes'); setResumes(list); setResumeId(r._id); if (!defs.defaultResumeId) setDefaultResume(r._id);
+      setOk(r.readable === false ? `${file.name} attached. Its text could not be read right now, so emails use your profile.` : `${file.name} uploaded and ready to attach.`);
+      if (rewrite) { const d = await api('/applications/ai-draft', { body: { jobId: rewrite.jobId, careerProfileId: f.profileId, resumeId: r._id, tone: 'professional' } }); setDraft((cur: any) => cur && ({ ...cur, ...d, to: cur.to || (d.recipient?.email ?? ''), resumeId: d.resumeId, loading: false })); }
+    } catch (x) { setErr(errText(x)); } finally { setUpBusy(false); }
+  }
+  const picker = (rewrite?: any) => (
+    <span className="jf-att">
+      <span aria-hidden>📎</span>
+      {resumeFiles.length > 0 && <select aria-label="Resume to attach" value={resume?._id ?? ''} onChange={(e) => { setResumeId(e.target.value); if (rewrite) writeEmailWith(rewrite, e.target.value); }}>
+        {resumeFiles.map((r) => <option key={r._id} value={r._id}>{r.fileName}</option>)}</select>}
+      <label className="btn sm" style={{ cursor: 'pointer' }}>{upBusy ? 'Uploading…' : resumeFiles.length ? '⬆ Upload another' : '⬆ Upload PDF'}
+        <input type="file" hidden accept="application/pdf" disabled={upBusy} onChange={(e) => { const fl = e.target.files?.[0]; if (fl) uploadResume(fl, rewrite); e.target.value = ''; }} /></label>
+    </span>
+  );
+  async function writeEmailWith(it: any, rid: string) {
+    setDraft((cur: any) => ({ ...cur, loading: true }));
+    try {
+      const d = await api('/applications/ai-draft', { body: { jobId: it.jobId, careerProfileId: f.profileId, resumeId: rid, tone: 'professional' } });
+      setDraft((cur: any) => ({ ...cur, ...d, to: cur.to || (d.recipient?.email ?? ''), resumeId: d.resumeId, loading: false }));
+    } catch (x) { setErr(errText(x)); setDraft((cur: any) => ({ ...cur, loading: false })); }
+  }
+  function selectSuitable() {
+    const need = profile?.minMatchScore ?? 70; const next: Record<string, boolean> = {};
+    for (const it of items) if (canPick(it) && it.score >= need) next[it.jobId] = true;
+    setSel(next);
+  }
+  async function saveSig() {
+    try { const r = await api('/ai/defaults', { method: 'PUT', body: { signature: sig } }); setDefs(r); setSigSaved(r.signature); setOk('Signature saved. It is added to every email.'); } catch (x) { setErr(errText(x)); }
+  }
+  async function setDefaultResume(id: string) {
+    setResumeId(id);
+    try { setDefs(await api('/ai/defaults', { method: 'PUT', body: { defaultResumeId: id || null } })); } catch (x) { setErr(errText(x)); }
+  }
+  const readB64 = (file: File) => new Promise<string>((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1] ?? ''); r.onerror = () => rej(new Error('Could not read the file')); r.readAsDataURL(file); });
+  async function addExtra(file: File) {
+    setErr(''); setOk(''); setExtraBusy(true);
+    try { setDefs(await api('/ai/attachments', { body: { filename: file.name, mime: file.type, base64: await readB64(file) } })); setOk(`${file.name} will be attached to every email.`); } catch (x) { setErr(errText(x)); } finally { setExtraBusy(false); }
+  }
+  async function removeExtra(id: string) { try { setDefs(await api(`/ai/attachments/${id}`, { method: 'DELETE' })); } catch (x) { setErr(errText(x)); } }
+  async function refreshStatus() {
+    if (!res?.items?.length) return;
+    try {
+      const m = await api('/applications/status-by-jobs', { body: { jobIds: res.items.map((i: any) => i.jobId) } });
+      setSt((cur) => { const n = { ...cur }; for (const [k, v] of Object.entries<any>(m)) n[k] = { ...v }; return n; });
+      setOk('Status refreshed.');
+    } catch (x) { setErr(errText(x)); }
+  }
+  async function sendSelected() {
+    if (!picked.length) return;
+    if (!window.confirm(`Send ${picked.length} application${picked.length === 1 ? '' : 's'} from your Gmail${resume ? ` with ${resume.fileName} attached` : ''}?\n\nA personalised email is written for each company.`)) return;
+    setSending(true); setErr(''); setOk('');
+    let sent = 0;
+    for (const it of picked) {
+      setSt((c) => ({ ...c, [it.jobId]: { state: 'sending', label: 'Writing email…' } }));
+      try {
+        const r = await api('/applications/quick-send', { body: { jobId: it.jobId, careerProfileId: f.profileId, resumeId: resume?._id } });
+        setSt((c) => ({ ...c, [it.jobId]: { id: r.applicationId, status: r.status, error: r.ok ? null : r.message, sentAt: r.ok ? new Date().toISOString() : null, to: r.to } }));
+        if (r.ok) { sent++; setSel((c) => ({ ...c, [it.jobId]: false })); }
+      } catch (x) { setSt((c) => ({ ...c, [it.jobId]: { status: 'send_failed', error: errText(x) } })); }
+      await new Promise((r) => setTimeout(r, 900)); // gentle pacing between emails
+    }
+    setSending(false); setOk(`${sent} of ${picked.length} sent. Check the status on each row.`);
+  }
+  const badge = (it: any) => {
+    const a = appOf(it); if (!a) return null;
+    if (a.state === 'sending') return <span className="pill warn jf-spin">⏳ {a.label}</span>;
+    const m: Record<string, [string, string]> = { applied: ['ok', '✓ Sent'], hr_replied: ['ok', '💬 Replied'], interview: ['ok', '🎤 Interview'], assessment: ['ok', '📝 Assessment'], offer: ['ok', '🏆 Offer'], accepted: ['ok', '🏆 Accepted'],
+      send_failed: ['bad', '✕ Failed'], send_unknown: ['warn', '? Unconfirmed'], draft: ['gray', 'Draft saved'], awaiting_approval: ['gray', 'Draft saved'], approved: ['warn', 'Approved'], sending: ['warn', 'Sending…'], blocked: ['bad', '✕ Not sent'], rejected: ['bad', 'Rejected'], closed: ['gray', 'Closed'] };
+    const [c, l] = m[a.status] ?? ['gray', a.status]; const when = a.sentAt && a.status === 'applied' ? ` · ${new Date(a.sentAt).toLocaleDateString()}` : '';
+    return <span className={`pill ${c}`} title={a.error ?? ''}>{l}{when}</span>;
+  };
+
   const items = (res?.items ?? []).filter((i: any) => i.score >= min);
   const live = mail?.mailMode === 'gmail' && mail?.connected;
 
@@ -84,6 +190,7 @@ export default function Discover() {
           <label className="az-f" style={{ flex: '1 1 190px' }}>Career profile<select value={f.profileId} onChange={(e) => setF({ ...f, profileId: e.target.value })}>{profiles.length === 0 && <option value="">Create a profile first</option>}{profiles.map((p) => <option key={p._id} value={p._id}>{p.name}</option>)}</select></label>
           <label className="az-f" style={{ flex: '3 1 260px' }}>Search
             <span className="jf-q"><Icon name="search" size={14} /><input placeholder="Optional · e.g. Node.js backend developer (defaults to your target titles)" value={f.query} onChange={(e) => setF({ ...f, query: e.target.value })} /></span></label>
+          <label className="az-f" style={{ flex: '0 0 118px' }}>Posted within<select value={f.maxAge} onChange={(e) => setF({ ...f, maxAge: Number(e.target.value) })}>{[1, 2, 3, 5, 7, 14].map((n) => <option key={n} value={n}>{n === 1 ? '24 hours' : `${n} days`}</option>)}</select></label>
           <label className="az-f" style={{ flex: '0 0 84px' }}>Results<select value={f.limit} onChange={(e) => setF({ ...f, limit: Number(e.target.value) })}>{[10, 20, 30, 40].map((n) => <option key={n}>{n}</option>)}</select></label>
           <button className="btn primary jf-go" disabled={busy || !f.profileId}><Icon name="search" size={14} />{busy ? 'Searching…' : 'Find jobs'}</button>
         </div>
@@ -97,39 +204,99 @@ export default function Discover() {
         </div>
       </form>
 
+      <section className="card jf-def">
+        <button type="button" className="jf-sig-h" onClick={() => setDefsOpen(!defsOpen)} aria-expanded={defsOpen}>
+          <span className="pg-h"><span className="ic" style={{ background: 'linear-gradient(135deg,#6366F1,#4338CA)' }}>⚙</span><b>Email defaults</b><small className="faint">Set once, used on every email</small></span>
+          <span className="jf-sum">
+            <span className={sigSaved ? 'ok' : ''}>{sigSaved ? '✓' : '○'} Signature</span>
+            <span className={resume ? 'ok' : ''}>{resume ? '✓' : '○'} Resume{resume ? `: ${resume.fileName}` : ''}</span>
+            {defs.attachments.length > 0 && <span className="ok">✓ +{defs.attachments.length} file{defs.attachments.length === 1 ? '' : 's'}</span>}
+            <em>{defsOpen ? 'Hide ▴' : 'Edit ▾'}</em>
+          </span>
+        </button>
+        {defsOpen && (
+          <div className="jf-def-b">
+            <div className="jf-def-col">
+              <h4>Signature &amp; highlights</h4>
+              <textarea value={sig} onChange={(e) => setSig(e.target.value)} placeholder={'Best regards,\nYour Name\nFull Stack Developer\nLinkedIn: https://…\nGitHub: https://…\n\nSome highlights of my profile:\n* …'} style={{ minHeight: 150 }} />
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><button type="button" className="btn primary sm" disabled={sig === sigSaved} onClick={saveSig}>Save signature</button><span className="faint" style={{ fontSize: 11.5 }}>{sig !== sigSaved ? 'Unsaved changes' : sigSaved ? 'Saved' : 'Added after the AI-written text'}</span></div>
+            </div>
+            <div className="jf-def-col">
+              <h4>Attachments</h4>
+              <div className="jf-file prim">
+                <span className="n">📄 <b>Resume</b> <small>(default)</small></span>
+                {resumeFiles.length > 0 && <select aria-label="Default resume" value={resume?._id ?? ''} onChange={(e) => setDefaultResume(e.target.value)}>{resumeFiles.map((r) => <option key={r._id} value={r._id}>{r.fileName}</option>)}</select>}
+                <label className="btn sm" style={{ cursor: 'pointer' }}>{upBusy ? 'Uploading…' : resumeFiles.length ? '⬆ Replace / add' : '⬆ Upload PDF'}
+                  <input type="file" hidden accept="application/pdf" disabled={upBusy} onChange={(e) => { const fl = e.target.files?.[0]; if (fl) uploadResume(fl); e.target.value = ''; }} /></label>
+              </div>
+              {defs.attachments.map((a: any) => (
+                <div key={a.id} className="jf-file"><span className="n">📎 {a.filename} <small>{Math.max(1, Math.round(a.size / 1024))} KB</small></span><button type="button" className="btn sm" aria-label={`Remove ${a.filename}`} onClick={() => removeExtra(a.id)}>✕ Remove</button></div>
+              ))}
+              {defs.attachments.length < 3 && (
+                <label className="jf-add">{extraBusy ? 'Uploading…' : '＋ Add another file (cover letter, portfolio…)'}
+                  <input type="file" hidden accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.txt" disabled={extraBusy} onChange={(e) => { const fl = e.target.files?.[0]; if (fl) addExtra(fl); e.target.value = ''; }} /></label>
+              )}
+              <div className="faint" style={{ fontSize: 11.5 }}>Everything listed here is attached automatically to every email you send. PDF, Word, image or text, up to 4 MB each.</div>
+            </div>
+          </div>)}
+      </section>
+
       {busy && <SearchProgress pct={pct} steps={steps} since={t0} title={f.enrich && ai?.configured ? `Gemini (${ai.model}) is finding and reviewing jobs` : 'Finding and scoring jobs'} />}
 
       {res && (
         <section className="card scroll">
           <div className="card-h">
             <h2>{items.length} openings</h2>
-            <span className="faint">{res.scanned} scanned · {res.relevant} relevant · {res.items.filter((i: any) => i.isNew).length} new</span>
+            <span className="faint">{res.scanned} scanned · {res.relevant} relevant · {res.items.filter((i: any) => i.isNew).length} new{res.staleSkipped ? ` · ${res.staleSkipped} older than ${res.maxAgeDays} days hidden` : ''}</span>
             <span style={{ flex: 1 }} />
+            <button type="button" className="btn sm" onClick={selectSuitable}>☑ Select suitable</button>
+            <button type="button" className="btn sm" onClick={refreshStatus}>↻ Check status</button>
             <label className="faint" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>Min score <select value={min} onChange={(e) => setMin(Number(e.target.value))} style={{ width: 100, minWidth: 100, height: 30, lineHeight: '20px', paddingBottom: 3 }}>{[0, 50, 60, 70, 80].map((n) => <option key={n} value={n}>{n || 'any'}</option>)}</select></label>
           </div>
           {res.sources.some((s: any) => !s.ok) && <div className="msg warn" style={{ marginBottom: 8 }}>Could not reach: {res.sources.filter((s: any) => !s.ok).map((s: any) => `${s.name} (${s.error})`).join(', ')}.</div>}
           {res.aiNote && <div className="msg warn" style={{ marginBottom: 8 }}>AI review stopped: {res.aiNote} Showing keyword-based scores for the rest.</div>}
           {items.length === 0 ? <div className="pg-empty"><div className="big">🔎</div><b>No openings matched</b><span>Try a broader search or add more skills to your profile.</span></div> : (
-            <div className="jf-list">{items.map((it: any) => (
-              <article key={it.jobId} className="jf-item">
-                <div className="jf-score" title="Match score" style={{ ['--c' as any]: scoreColor(it.score) }}><b>{it.score}</b><small>match</small></div>
+            <div className="jf-list">
+              <div className="jf-head"><span /><span>Score</span><span>Role</span><span>Contact</span><span>Status &amp; actions</span></div>
+              {items.map((it: any) => { const a = appOf(it); const dom = it.applicationUrl ? (() => { try { return new URL(it.applicationUrl).hostname.replace(/^www\./, ''); } catch { return null; } })() : null; return (
+              <article key={it.jobId} className={`jf-item ${sel[it.jobId] && canPick(it) ? 'picked' : ''}`}>
+                <label className="jf-pick" title={canPick(it) ? 'Select to send' : it.applyMethod !== 'email' ? 'No apply email: use the posting link' : 'Already handled'}>
+                  <input type="checkbox" disabled={!canPick(it) || sending} checked={!!sel[it.jobId] && canPick(it)} onChange={(e) => setSel({ ...sel, [it.jobId]: e.target.checked })} />
+                </label>
+                <div className="jf-score" title={`${REC[it.recommendation]?.l ?? ''} (match score)`} style={{ ['--c' as any]: scoreColor(it.score) }}><b>{it.score}</b><small>{REC[it.recommendation]?.l ?? ''}</small></div>
                 <div className="jf-main">
-                  <div className="jf-title"><b>{it.title}</b><span className={`pill ${REC[it.recommendation]?.c}`}>{REC[it.recommendation]?.l}</span>
-                    {it.isNew && <span className="pill">new</span>}{it.aiReviewed && <span className="pill gray">✨ AI reviewed</span>}</div>
-                  <div className="jf-meta"><b>{it.company}</b>{[it.workMode, it.location, it.source, ago(it.postedAt)].filter(Boolean).map((m: string) => <span key={m}>{m}</span>)}</div>
-                  <div className="az-tags" style={{ marginTop: 5 }}>
-                    {it.matched.slice(0, 6).map((s: string) => <span key={s} className="tag good">✓ {s}</span>)}
-                    {it.missing.slice(0, 4).map((s: string) => <span key={s} className="tag bad">✕ {s}</span>)}
+                  <div className="jf-title"><b>{it.title}</b>{it.isNew && <span className="jf-new">New</span>}</div>
+                  <div className="jf-meta"><b>{it.company}</b>{[it.location, it.workMode, it.employmentType, it.source, ago(it.postedAt) && `Posted ${ago(it.postedAt)}`].filter(Boolean).map((m: string) => <span key={m}>{m}</span>)}</div>
+                  <div className="jf-skills">
+                    {it.matched.slice(0, 6).map((sk: string) => <span key={sk} className="ok">✓ {sk}</span>)}
+                    {it.missing.slice(0, 4).map((sk: string) => <span key={sk} className="no">✕ {sk}</span>)}
                   </div>
                 </div>
-                <div className="jf-act">
-                  {it.applyMethod === 'email'
-                    ? <button className="btn primary sm" onClick={() => writeEmail(it)}><Icon name="spark" size={12} />Write email &amp; apply</button>
-                    : <button className="btn sm" onClick={() => writeEmail(it)}><Icon name="spark" size={12} />Write cover note</button>}
-                  {it.applicationUrl && <a className="btn sm" href={it.applicationUrl} target="_blank" rel="noopener noreferrer">Open posting ↗</a>}
-                  <small>{it.applyMethod === 'email' ? it.applicationEmail : 'Apply on their site'}</small>
+                <div className="jf-contact">
+                  {it.applicationEmail ? <div className="row1"><span className="k">Email</span><a href={`mailto:${it.applicationEmail}`}>{it.applicationEmail}</a><button type="button" className="cp" title="Copy email" onClick={() => { navigator.clipboard?.writeText(it.applicationEmail); setOk(`Copied ${it.applicationEmail}`); }}>⧉</button></div>
+                    : <div className="row1 none"><span className="k">Email</span>Not listed in the posting</div>}
+                  {it.contactPhone && <div className="row1"><span className="k">Phone</span><a href={`tel:${it.contactPhone.replace(/[^+\d]/g, '')}`}>{it.contactPhone}</a></div>}
+                  {dom && <div className="row1"><span className="k">Apply</span><a href={it.applicationUrl} target="_blank" rel="noopener noreferrer">{dom}</a></div>}
+                  {it.salary?.max && <div className="row1"><span className="k">Salary</span>{[it.salary.min, it.salary.max].filter(Boolean).map((n: number) => Number(n).toLocaleString()).join(' – ')} {it.salary.currency ?? ''}</div>}
                 </div>
-              </article>))}</div>)}
+                <div className="jf-act">
+                  <div className="jf-st">{badge(it) ?? <span className="faint">Not applied</span>}</div>
+                  {sentLike.includes(a?.status) ? <button className="btn sm" disabled>✓ Applied</button>
+                    : <button className={`btn sm ${it.applyMethod === 'email' ? 'primary' : ''}`} onClick={() => writeEmail(it)}>{it.applyMethod === 'email' ? '✉ Preview & send' : '✎ Cover note'}</button>}
+                  {it.applicationUrl && <a className="btn sm" href={it.applicationUrl} target="_blank" rel="noopener noreferrer">Open posting ↗</a>}
+                </div>
+                {a?.error && <div className="jf-err">{a.error}</div>}
+              </article>); })}
+            </div>)}
+          {picked.length > 0 || sending ? (
+            <div className="jf-bar">
+              <b>{picked.length} selected</b>
+              {picker()}
+              {defs.attachments.length > 0 && <span className="faint">+ {defs.attachments.map((a: any) => a.filename).join(', ')}</span>}
+              {!live && <span className="pill warn" title="Set MAIL_PROVIDER=gmail and connect Gmail">Real sending is off</span>}
+              <span style={{ flex: 1 }} />
+              <button className="btn primary" disabled={sending || !picked.length || !resume} onClick={sendSelected}><Icon name="send" size={13} />{sending ? 'Sending…' : `Send ${picked.length} application${picked.length === 1 ? '' : 's'}`}</button>
+            </div>) : null}
           <div className="faint" style={{ marginTop: 10 }}>Listings come from {sources.map((s, i) => <span key={s.id}>{i > 0 && ', '}<a href={s.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'underline' }}>{s.name}</a></span>)}. Apply links go to the original posting.</div>
         </section>)}
 
@@ -144,7 +311,10 @@ export default function Discover() {
               {draft.recipient ? <label className="f">To<input type="email" value={draft.to} onChange={(e) => setDraft({ ...draft, to: e.target.value })} /></label> : <div className="msg warn">This posting has no email address. Copy the note below and apply on <a href={draft.applicationUrl ?? '#'} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'underline' }}>the company site</a>.</div>}
               <label className="f">Subject<input value={draft.subject} onChange={(e) => setDraft({ ...draft, subject: e.target.value })} /></label>
               <label className="f" style={{ flex: 1, minHeight: 0 }}>Message<textarea style={{ flex: 1 }} value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} /></label>
-              <div className="faint">{draft.resumeAttached ? '📎 Your uploaded resume PDF will be attached.' : '⚠ No resume PDF on file: upload one in Resume Studio to attach it automatically.'}</div>
+              <div className="jf-attbox">
+                <div className="faint" style={{ marginBottom: 6 }}>{draft.resumeAttached ? 'Attachment that will be sent with this email:' : '⚠ No resume attached yet. Upload your PDF (the email is rewritten to mention it):'}</div>
+                {picker(draft.job)}
+              </div>
             </div>
             <div className="df">
               {draft.recipient ? (<>

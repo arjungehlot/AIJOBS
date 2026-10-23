@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { findApplyEmail, fromArbeitnow, fromJobicy, fromRemoteOk, fromRemotive, htmlToText, relevance, sourceUrl } from './job-sources.ts';
+import { findApplyEmail, findPhone, fromArbeitnow, fromJobicy, fromRemoteOk, fromRemotive, htmlToText, isFresh, relevance, sourceUrl } from './job-sources.ts';
 
 test('htmlToText keeps structure and decodes entities', () => {
   const t = htmlToText('<p>We&#39;re hiring &amp; growing</p><ul><li>Node.js</li><li>React</li></ul><script>x()</script>');
@@ -33,3 +33,17 @@ test('relevance favours matching titles and skills', () => {
   assert.ok(relevance(good, r) > 3); assert.equal(relevance(bad, r), 0);
 });
 test('sourceUrl encodes the query', () => { assert.match(sourceUrl('remotive', 'node js'), /search=node%20js/); });
+
+test('isFresh drops postings older than the limit and keeps undated ones', () => {
+  const now = new Date('2026-10-23T00:00:00Z');
+  assert.equal(isFresh(new Date('2026-10-20T00:00:00Z'), 5, now), true);
+  assert.equal(isFresh(new Date('2026-10-18T00:00:00Z'), 5, now), true);
+  assert.equal(isFresh(new Date('2026-10-17T23:00:00Z'), 5, now), false);
+  assert.equal(isFresh(undefined, 5, now), true);
+});
+
+test('findPhone finds stated numbers and ignores plain numbers', () => {
+  assert.equal(findPhone('Call HR on +91 98765 43210 today'), '+91 98765 43210');
+  assert.equal(findPhone('WhatsApp 9876543210 for details'), '9876543210');
+  assert.equal(findPhone('We have 1200 employees and were founded in 2015, salary 600000'), undefined);
+});

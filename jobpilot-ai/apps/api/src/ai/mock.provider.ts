@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { BadRequestException } from '@nestjs/common';
 import { extractSkills } from '../domain/ats';
 import { AiProvider, DraftContext, JobInput, ModelInfo, ParsedResume, ResumeInput } from './ai.provider';
+import { templateDraft } from './template-draft';
 import { ExtractedJob, ExtractedJobSchema } from './extraction.schema';
 
 const KNOWN_SKILLS = ['node.js', 'react', 'typescript', 'javascript', 'python', 'java', 'go', 'postgresql', 'mongodb',
@@ -37,17 +38,7 @@ export class MockAiProvider implements AiProvider {
     });
   }
 
-  async draftEmail(c: DraftContext) {
-    const skills = c.matchedSkills.slice(0, 5).join(', ');
-    const gap = c.missingRequiredSkills.length
-      ? `\n\nI have not yet worked with ${c.missingRequiredSkills.join(', ')} in production and would be glad to discuss how I would close that gap.`
-      : '';
-    return {
-      subject: `Application: ${c.jobTitle} - ${c.candidateName}`,
-      body: `Hello ${c.recruiterName ?? 'Hiring Team'},\n\nI am applying for the ${c.jobTitle} role at ${c.company}. ` +
-        `I have ${c.yearsExperience} years of experience${skills ? ` with ${skills}` : ''}.${gap}${c.resumeAttached ? "\n\nMy resume is attached." : ""}\n\nKind regards,\n${c.candidateName}`,
-    };
-  }
+  async draftEmail(c: DraftContext) { return templateDraft(c); }
 
   async parseResume(input: ResumeInput): Promise<ParsedResume> {
     if (input.kind === 'pdf') throw new BadRequestException('Reading a PDF needs the Gemini AI provider. Set GEMINI_API_KEY, or paste the resume text instead.');

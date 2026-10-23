@@ -2,18 +2,34 @@ import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { z } from 'zod';
+import { toBuffer } from '../domain/bytes';
 import { AuditService } from '../audit/audit.service';
 import { env } from '../common/env';
 import { AI_PROVIDER, AiProvider } from './ai.provider';
 import { AiSetting } from './ai-settings.schema';
+import { EmailAttachment } from './email-attachment.schema';
 
 export const SetModelDto = z.object({ model: z.string().trim().regex(/^[a-z0-9][a-z0-9._-]{2,80}$/i, 'Invalid model id') });
+
+export const DefaultsDto = z.object({
+  signature: z.string().max(3000).optional(),
+  defaultResumeId: z.string().regex(/^[a-f0-9]{24}$/i).nullable().optional(),
+});
+const ATT_MIME: Record<string, string> = { 'application/pdf': 'pdf', 'application/msword': 'doc', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx', 'image/png': 'png', 'image/jpeg': 'jpg', 'text/plain': 'txt' };
+export const AttachmentUploadDto = z.object({
+  filename: z.string().trim().min(1).max(160),
+  mime: z.enum(Object.keys(ATT_MIME) as [string, ...string[]]),
+  base64: z.string().min(20),
+});
+const MAX_ATT_BYTES = 4 * 1024 * 1024; const MAX_ATT_FILES = 3;
+export const SignatureDto = z.object({ signature: z.string().max(3000) });
 
 @Injectable()
 export class AiSettingsService {
   private models: { at: number; list: Awaited<ReturnType<AiProvider['listModels']>> } | null = null;
   constructor(
     @InjectModel(AiSetting.name) private readonly settings: Model<AiSetting>,
+    @InjectModel(EmailAttachment.name) private readonly atts: Model<EmailAttachment>,
     @Inject(AI_PROVIDER) private readonly ai: AiProvider,
     private readonly audit: AuditService,
   ) {}
@@ -72,5 +88,52 @@ export class AiSettingsService {
   async test(userId: string) {
     const model = await this.modelFor(userId);
     return { provider: this.ai.name, ...(await this.ai.ping({ model })) };
+  }
+
+  async signatureFor(userId: string): Promise<string> { return ((await this.settings.findOne({ userId }).lean())?.signature ?? '').trim(); }
+
+  async setSignature(userId: string, signature: string) {
+    await this.settings.findOneAndUpdate({ userId }, { $set: { signature: signature.trim() } }, { upsert: true });
+    await this.audit.record({ userId, actor: 'user', action: 'ai.signature_changed', entityType: 'ai', entityId: userId, result: 'success' });
+    return { signature: signature.trim() };
+  }
+
+  /** Everything set once: signature, default resume, extra files. Never returns file bytes. */
+  async defaults(userId: string) {
+    const [s, files] = await Promise.all([this.settings.findOne({ userId }).lean(), this.atts.find({ userId }).select('filename mime size createdAt').sort({ createdAt: 1 }).lean()]);
+    return { signature: s?.signature ?? '', defaultResumeId: s?.defaultResumeId ? String(s.defaultResumeId) : null, attachments: files.map((f: any) => ({ id: String(f._id), filename: f.filename, mime: f.mime, size: f.size })) };
+  }
+
+  async setDefaults(userId: string, dto: z.infer<typeof DefaultsDto>) {
+    const set: Record<string, unknown> = {}; const unset: Record<string, ''> = {};
+    if (dto.signature !== undefined) set.signature = dto.signature.trim();
+    if (dto.defaultResumeId) set.defaultResumeId = dto.defaultResumeId; else if (dto.defaultResumeId === null) unset.defaultResumeId = '';
+    await this.settings.findOneAndUpdate({ userId }, { ...(Object.keys(set).length && { $set: set }), ...(Object.keys(unset).length && { $unset: unset }) }, { upsert: true });
+    await this.audit.record({ userId, actor: 'user', action: 'ai.defaults_changed', entityType: 'ai', entityId: userId, result: 'success' });
+    return this.defaults(userId);
+  }
+
+  async addAttachment(userId: string, dto: z.infer<typeof AttachmentUploadDto>) {
+    const bytes = Buffer.from(dto.base64, 'base64');
+    if (bytes.length > MAX_ATT_BYTES) throw new BadRequestException('File is larger than 4 MB');
+    if (dto.mime === 'application/pdf' && bytes.subarray(0, 5).toString() !== '%PDF-') throw new BadRequestException('This file is not a valid PDF');
+    if ((await this.atts.countDocuments({ userId })) >= MAX_ATT_FILES) throw new BadRequestException(`You can keep up to ${MAX_ATT_FILES} extra attachments. Remove one first.`);
+    const filename = dto.filename.replace(/[^\w.\- ()]+/g, '_');
+    await this.atts.create({ userId, filename, mime: dto.mime, size: bytes.length, data: bytes });
+    await this.audit.record({ userId, actor: 'user', action: 'email.attachment_added', entityType: 'ai', entityId: userId, result: 'success', meta: { bytes: bytes.length } });
+    return this.defaults(userId);
+  }
+
+  async removeAttachment(userId: string, id: string) {
+    await this.atts.deleteOne({ _id: id, userId });
+    return this.defaults(userId);
+  }
+
+  async defaultResumeId(userId: string): Promise<string | undefined> { const s = await this.settings.findOne({ userId }).lean(); return s?.defaultResumeId ? String(s.defaultResumeId) : undefined; }
+
+  /** The extra files for every email, with bytes, ready to attach. */
+  async extraAttachments(userId: string) {
+    const rows = await this.atts.find({ userId }).select('+data filename mime').sort({ createdAt: 1 }).lean();
+    return rows.map((r: any) => ({ filename: r.filename as string, mime: r.mime as string, data: toBuffer(r.data) }));
   }
 }

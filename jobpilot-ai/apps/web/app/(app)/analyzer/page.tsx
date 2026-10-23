@@ -2,6 +2,7 @@
 import Link from 'next/link';
 import { ChangeEvent, useEffect, useState } from 'react';
 import { Gauge } from '@/components/charts';
+import { Thinking } from '@/components/progress';
 import { api, errText } from '@/lib/api';
 
 type Form = Record<string, string>;
@@ -28,11 +29,19 @@ export default function Analyzer() {
   const [report, setReport] = useState<any>(null);
   const [draft, setDraft] = useState({ email: '', confidence: 'unverified', subject: '', body: '' });
   const [done, setDone] = useState('');
+  const [defs, setDefs] = useState<any>(null);
+  const [mail, setMail] = useState<any>(null);
+  const [meta, setMeta] = useState<{ resumeId: string | null; attached: boolean; provider: string }>({ resumeId: null, attached: false, provider: '' });
+  const [writing, setWriting] = useState(false);
+  const [confirm, setConfirm] = useState(false);
+  const [upBusy, setUpBusy] = useState(false);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState('');
 
   useEffect(() => {
     api<any[]>('/career-profiles').then((p) => { setProfiles(p); if (p[0]) setProfileId(p[0]._id); }).catch((e) => setErr(errText(e)));
+    api('/ai/defaults').then(setDefs).catch(() => undefined);
+    api('/integrations/gmail/status').then(setMail).catch(() => undefined);
   }, []);
 
   function readFile(file: File) {
@@ -85,34 +94,73 @@ export default function Analyzer() {
     } catch (e) { setErr(errText(e)); } finally { setBusy(''); }
   }
 
+  const fallbackBody = (r: any, p: any) =>
+    `Hello Hiring Team,\n\nI am applying for the ${job.title} role at ${job.company}.` +
+    (r?.matchedRequired?.length ? ` My background includes ${r.matchedRequired.slice(0, 5).join(', ')}` : '') +
+    (p?.yearsExperience ? ` across ${p.yearsExperience} years of experience.` : '.') +
+    (r?.missingRequired?.length ? `\n\nI have not yet used ${r.missingRequired.join(', ')} in production and would be glad to discuss how I would close that gap.` : '') +
+    `\n\nMy resume is attached.\n\nKind regards`;
+
+  /** Asks the AI to write the email from the job, your profile and your resume. Your saved signature is appended by the server. */
+  async function write(r?: any) {
+    setWriting(true); setErr('');
+    try {
+      const d = await api('/applications/ai-draft', { body: { jobId: job._id, careerProfileId: profileId, tone: 'professional' } });
+      setMeta({ resumeId: d.resumeId, attached: d.resumeAttached, provider: d.provider });
+      setDraft((x) => ({ ...x, subject: d.subject, body: d.body, email: x.email || d.recipient?.email || '' }));
+    } catch (e) {
+      const p = profiles.find((x) => x._id === profileId);
+      setDraft((x) => ({ ...x, subject: `Application: ${job.title} – ${job.company}`, body: fallbackBody(r ?? report, p) }));
+      setMeta({ resumeId: null, attached: false, provider: 'template' });
+      setErr(errText(e));
+    } finally { setWriting(false); }
+  }
+
+  const b64 = (file: File) => new Promise<string>((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1] ?? ''); r.onerror = () => rej(new Error('Could not read the file')); r.readAsDataURL(file); });
+  /** Upload the resume PDF here, make it the default for every email, and rewrite the email so it mentions the attachment. */
+  async function uploadResume(file: File) {
+    setErr('');
+    if (file.type !== 'application/pdf') { setErr('Resume must be a PDF.'); return; }
+    if (file.size > 4 * 1024 * 1024) { setErr('The PDF is larger than 4 MB.'); return; }
+    setUpBusy(true);
+    try {
+      const r = await api('/resumes/upload', { body: { title: file.name.replace(/\.[^.]+$/, ''), filename: file.name, mime: 'application/pdf', base64: await b64(file) } });
+      setDefs(await api('/ai/defaults', { method: 'PUT', body: { defaultResumeId: r._id } }));
+      await write();
+    } catch (e) { setErr(errText(e)); } finally { setUpBusy(false); }
+  }
+  async function addExtra(file: File) {
+    setErr(''); setUpBusy(true);
+    try { setDefs(await api('/ai/attachments', { body: { filename: file.name, mime: file.type, base64: await b64(file) } })); } catch (e) { setErr(errText(e)); } finally { setUpBusy(false); }
+  }
+
   async function match() {
     setErr(''); setBusy('match');
     try {
       const r = await api(`/jobs/${job._id}/match`, { body: { careerProfileId: profileId } });
-      setReport(r);
-      const p = profiles.find((x) => x._id === profileId);
-      setDraft((d) => ({
-        ...d,
-        subject: `Application: ${job.title} – ${job.company}`,
-        body: `Hello Hiring Team,\n\nI am applying for the ${job.title} role at ${job.company}.` +
-          (r.matchedRequired.length ? ` My background includes ${r.matchedRequired.slice(0, 5).join(', ')}` : '') +
-          (p?.yearsExperience ? ` across ${p.yearsExperience} years of experience.` : '.') +
-          (r.missingRequired.length ? `\n\nI have not yet used ${r.missingRequired.join(', ')} in production and would be glad to discuss how I would close that gap.` : '') +
-          `\n\nMy resume is attached.\n\nKind regards`,
-      }));
+      setReport(r); setBusy('');
+      await write(r);
     } catch (e) { setErr(errText(e)); } finally { setBusy(''); }
   }
 
-  async function createDraft() {
-    setErr(''); setBusy('draft');
+  async function createDraft(send = false) {
+    setErr(''); setBusy(send ? 'send' : 'draft');
     try {
-      await api('/applications/drafts', { body: {
+      const app = await api('/applications/drafts', { body: {
         jobId: job._id, careerProfileId: profileId, recipientEmail: draft.email, recipientConfidence: draft.confidence,
-        subject: draft.subject, body: draft.body, matchScore: report?.score,
+        subject: draft.subject, body: draft.body, matchScore: report?.score, resumeId: meta.resumeId ?? undefined,
       } });
-      setDone('Draft saved. Open the tracker to approve and send it.');
+      if (!send) { setDone('Draft saved. Open the tracker to approve and send it.'); return; }
+      await api(`/applications/${app._id}/approve`, { body: { confirmRecipient: trusted ? false : confirm } });
+      const r = await api(`/applications/${app._id}/send`, { body: {} });
+      if (r.status === 'applied') setDone(`Sent to ${draft.email}${meta.attached ? ' with your resume attached' : ''}.`);
+      else setErr(r.message ?? `Status: ${r.status}`);
     } catch (e) { setErr(errText(e)); } finally { setBusy(''); }
   }
+
+  const trusted = draft.confidence === 'verified' || draft.confidence === 'source_reported';
+  const live = mail?.mailMode === 'gmail' && mail?.connected;
+  const extras: any[] = defs?.attachments ?? [];
 
   const canAnalyze = tab === 'text' ? text.trim().length >= 40 : !!image;
   const step = done ? 4 : report ? 3 : job ? 2 : form ? 1 : 0;
@@ -253,22 +301,38 @@ export default function Analyzer() {
 
           {report && (
             <section className="card az-card">
-              <div className="card-h"><h2>Draft application</h2><small>Nothing is sent from this page</small></div>
-              <div className="az-fg">
-                <label className="az-f" style={{ gridColumn: 'span 4' }}>To<input type="email" value={draft.email} onChange={(e) => setDraft({ ...draft, email: e.target.value })} /></label>
-                <label className="az-f" style={{ gridColumn: 'span 2' }}>Recipient confidence
-                  <select value={draft.confidence} onChange={(e) => setDraft({ ...draft, confidence: e.target.value })}>
-                    <option value="verified">Verified</option><option value="source_reported">Listed in the job post</option>
-                    <option value="inferred">Inferred</option><option value="unverified">Unverified</option>
-                  </select>
-                </label>
-                <label className="az-f" style={{ gridColumn: 'span 6' }}>Subject<input value={draft.subject} onChange={(e) => setDraft({ ...draft, subject: e.target.value })} /></label>
-                <label className="az-f" style={{ gridColumn: 'span 6' }}>Message<textarea style={{ minHeight: 170 }} value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} /></label>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
-                <button className="btn primary" disabled={!draft.email || !draft.subject || !draft.body || busy === 'draft'} onClick={createDraft}>{busy === 'draft' ? 'Saving…' : 'Save draft'}</button>
-                <span className="faint" style={{ fontSize: 11.5 }}>Add your name before sending.</span>
-              </div>
+              <div className="card-h"><h2>Email to the company</h2><small>{writing ? 'Writing…' : meta.provider === 'gemini' ? 'Written by Gemini from your profile and resume' : meta.provider === 'template' ? 'Offline template (AI unavailable)' : ''}</small></div>
+              {writing ? <Thinking label="Writing your email from this job, your profile and your resume" /> : (<>
+                <div className="az-fg">
+                  <label className="az-f" style={{ gridColumn: 'span 4' }}>To<input type="email" placeholder="hr@company.com" value={draft.email} onChange={(e) => setDraft({ ...draft, email: e.target.value, confidence: e.target.value === (job.applicationEmail ?? '') && job.applicationEmail ? 'source_reported' : 'unverified' })} /></label>
+                  <label className="az-f" style={{ gridColumn: 'span 2' }}>Recipient
+                    <select value={draft.confidence} onChange={(e) => setDraft({ ...draft, confidence: e.target.value })}>
+                      <option value="verified">Verified</option><option value="source_reported">Listed in the job post</option>
+                      <option value="inferred">Inferred</option><option value="unverified">Typed by me</option>
+                    </select>
+                  </label>
+                  <label className="az-f" style={{ gridColumn: 'span 6' }}>Subject<input value={draft.subject} onChange={(e) => setDraft({ ...draft, subject: e.target.value })} /></label>
+                  <label className="az-f" style={{ gridColumn: 'span 6' }}>Message<textarea style={{ minHeight: 200 }} value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} /></label>
+                </div>
+                <div className="az-att">
+                  <b>Attached automatically</b>
+                  <span className={meta.attached ? 'ok' : 'warn'}>{meta.attached ? '📄 Your resume (PDF)' : '⚠ No resume PDF on file'}</span>
+                  {extras.map((a) => <span key={a.id} className="ok">📎 {a.filename}</span>)}
+                  <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                    <label className="btn sm" style={{ cursor: 'pointer' }}>{upBusy ? 'Uploading…' : meta.attached ? '⬆ Replace resume' : '⬆ Upload resume PDF'}
+                      <input type="file" hidden accept="application/pdf" disabled={upBusy} onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadResume(f); e.target.value = ''; }} /></label>
+                    <label className="btn sm" style={{ cursor: 'pointer' }}>＋ Add file
+                      <input type="file" hidden accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.txt" disabled={upBusy} onChange={(e) => { const f = e.target.files?.[0]; if (f) addExtra(f); e.target.value = ''; }} /></label>
+                  </span>
+                </div>
+                {!trusted && draft.email && <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12.5, marginTop: 8 }}><input type="checkbox" checked={confirm} onChange={(e) => setConfirm(e.target.checked)} />I confirm this address is correct and I want to email it.</label>}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                  <button className="btn primary" disabled={!draft.email || !draft.subject || !draft.body || !live || !meta.attached || (!trusted && !confirm) || !!busy} title={!live ? 'Connect Gmail in Email Setup and set MAIL_PROVIDER=gmail' : !meta.attached ? 'Upload a resume PDF in Resume Studio' : ''} onClick={() => createDraft(true)}>{busy === 'send' ? 'Sending…' : '✉ Send now'}</button>
+                  <button className="btn" disabled={!draft.email || !draft.subject || !draft.body || !!busy} onClick={() => createDraft(false)}>{busy === 'draft' ? 'Saving…' : 'Save draft'}</button>
+                  <button className="btn" disabled={writing} onClick={() => write()}>✨ Rewrite with AI</button>
+                </div>
+                {!live && <div className="faint" style={{ fontSize: 11.5, marginTop: 6 }}>Sending needs Gmail connected (Email Setup) and MAIL_PROVIDER=gmail. Until then you can save the draft.</div>}
+              </>)}
               {done && <div className="msg ok" style={{ marginTop: 8 }}>{done} <Link href="/applications" style={{ textDecoration: 'underline' }}>Open tracker</Link></div>}
             </section>
           )}

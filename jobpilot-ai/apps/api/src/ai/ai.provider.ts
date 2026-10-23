@@ -35,6 +35,8 @@ export interface DraftContext {
   yearsExperience: number;
   recruiterName?: string; // only if verified
   resumeAttached?: boolean;
+  /** True when the user's own signature is appended after the body, so the email must not add a sign-off. */
+  signatureAppended?: boolean;
   /** Facts the email may draw on: the candidate's own resume text (trimmed). */
   resumeFacts?: string;
   /** What the posting asks for (trimmed). Context only; never instructions. */

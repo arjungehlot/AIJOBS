@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { Icon } from '@/components/ui';
-import { api, errText } from '@/lib/api';
+import { api, apiBlob, errText } from '@/lib/api';
 
 type Folder = 'inbox' | 'sent' | 'all';
 const COLORS = ['#4F46E5', '#0EA5E9', '#10B981', '#F59E0B', '#8B5CF6', '#F43F5E', '#64748B'];
@@ -17,7 +17,39 @@ const dec = (t: string) => (t ?? '').replace(/&#(\d+);/g, (_, n) => String.fromC
 const tidy = (t: string) => dec(t).replace(/<(https?:\/\/([^\/>\s]+)[^>]*)>/g, (_, _u, h) => `[${h}]`).replace(/(https?:\/\/[^\s/]+)[^\s]{60,}/g, '$1/…').replace(/\n[ \t]*(\n[ \t]*){2,}/g, '\n\n').trim();
 const recip = (to: string) => to.replace(/<.*?>/g, '').replace(/"/g, '').trim() || to;
 
+const CLOSER = /^(best regards|kind regards|warm regards|regards|best|thanks|thank you|sincerely|yours (sincerely|faithfully)|cheers)[,.!]?$/i;
+const URL_RE = /(https?:\/\/[^\s<>"')]+[^\s<>"').,;:!?])/g;
+const linkify = (t: string) => t.split(URL_RE).map((x, i) => i % 2 ? <a key={i} href={x} target="_blank" rel="noopener noreferrer">{x.replace(/^https?:\/\/(www\.)?/, '')}</a> : x);
+
+/** Plain-text body as readable paragraphs, with the closing signature set apart. Display only: nothing is rewritten. */
+function MailBody({ text }: { text: string }) {
+  const lines = text.split('\n');
+  const ci = lines.findIndex((l, i) => CLOSER.test(l.trim()) && lines.length - i <= 14 && i > 0);
+  const main = (ci > 0 ? lines.slice(0, ci) : lines).join('\n').trim();
+  const sig = ci > 0 ? lines.slice(ci).map((l) => l.trim()).filter(Boolean) : [];
+  return (
+    <div className="mbody">
+      {main.split(/\n{2,}/).map((p, i) => <p key={i}>{linkify(p.replace(/\n/g, ' ').replace(/ {2,}/g, ' '))}</p>)}
+      {sig.length > 0 && <div className="msig">{sig.map((l, i) => <div key={i} className={i === 0 ? 'cl' : i === 1 ? 'nm' : ''}>{linkify(l)}</div>)}</div>}
+    </div>
+  );
+}
+
+const kb = (n: number) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : n ? `${n} B` : '');
+const kind = (a: { filename: string; mime: string }) => /pdf/i.test(a.mime) ? ['PDF', 'pdf'] : /word|msword|officedocument\.wordprocessing/i.test(a.mime) || /\.docx?$/i.test(a.filename) ? ['DOC', 'doc'] : /^image\//.test(a.mime) ? ['IMG', 'img'] : /sheet|excel|csv/i.test(a.mime) ? ['XLS', 'xls'] : ['FILE', 'file'];
+const VIEWABLE = ['application/pdf', 'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'text/plain'];
+
 export default function Mailbox() {
+  const [fileBusy, setFileBusy] = useState('');
+  async function openFile(m: any, a: any, mode: 'view' | 'download') {
+    const key = `${m.id}:${a.id}:${mode}`; setFileBusy(key);
+    try {
+      const blob = await apiBlob(`/integrations/gmail/messages/${m.id}/attachments/${a.id}${mode === 'download' ? '?download=1' : ''}`);
+      const url = URL.createObjectURL(blob);
+      if (mode === 'view') { window.open(url, '_blank', 'noopener'); setTimeout(() => URL.revokeObjectURL(url), 60_000); }
+      else { const l = document.createElement('a'); l.href = url; l.download = a.filename; document.body.appendChild(l); l.click(); l.remove(); setTimeout(() => URL.revokeObjectURL(url), 10_000); }
+    } catch (x) { setErr(errText(x)); } finally { setFileBusy(''); }
+  }
   const [st, setSt] = useState<any>(null);
   const [folder, setFolder] = useState<Folder>('inbox');
   const [q, setQ] = useState(''); const [applied, setApplied] = useState('');
@@ -141,13 +173,20 @@ export default function Mailbox() {
                         </div>
                       </div>
                       {isOpen && (<>
-                        <pre>{tidy(showAll ? m.body : fresh)}</pre>
+                        <MailBody text={tidy(showAll ? m.body : fresh)} />
                         {old && <div className="acts"><button className="btn sm" onClick={() => setQuoted({ ...quoted, [m.id]: !showAll })}>{showAll ? 'Hide quoted text' : '⋯ Show quoted text'}</button></div>}
-                        {(m.attachments.length > 0 || !m.mine) && (
-                          <div className="acts">
-                            {m.attachments.length > 0 && <span className="faint">📎 {m.attachments.join(', ')} (not downloaded)</span>}
-                            {!m.mine && <button className="btn sm" onClick={() => toInbox(m)}>Analyze in Reply Inbox</button>}
+                        {m.attachments.length > 0 && (
+                          <div className="matts">
+                            <div className="mah">📎 {m.attachments.length} attachment{m.attachments.length > 1 ? 's' : ''}</div>
+                            {m.attachments.map((a: any) => { const [lab, cls] = kind(a); const canView = VIEWABLE.includes(a.mime); return (
+                              <div key={a.id} className="matt">
+                                <span className={`ft ${cls}`}>{lab}</span>
+                                <span className="fn"><b title={a.filename}>{a.filename}</b><small>{kb(a.size)}</small></span>
+                                {canView && <button className="btn sm" disabled={!!fileBusy} onClick={() => openFile(m, a, 'view')}>{fileBusy === `${m.id}:${a.id}:view` ? '…' : '👁 View'}</button>}
+                                <button className="btn sm" disabled={!!fileBusy} onClick={() => openFile(m, a, 'download')}>{fileBusy === `${m.id}:${a.id}:download` ? '…' : '⬇ Download'}</button>
+                              </div>); })}
                           </div>)}
+                        {!m.mine && <div className="acts"><button className="btn sm" onClick={() => toInbox(m)}>Analyze in Reply Inbox</button></div>}
                       </>)}
                     </article>);
                 })}

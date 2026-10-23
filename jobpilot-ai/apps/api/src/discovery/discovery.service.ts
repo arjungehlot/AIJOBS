@@ -9,8 +9,9 @@ import { AuditService } from '../audit/audit.service';
 import { CareerProfile } from '../career-profiles/career-profile.schema';
 import { extractSkills } from '../domain/ats';
 import { dedupeKey } from '../domain/dedupe';
-import { PARSERS, RawJob, SOURCES, SourceId, findApplyEmail, relevance, sourceUrl } from '../domain/job-sources';
+import { PARSERS, RawJob, SOURCES, SourceId, findApplyEmail, findPhone, isFresh, relevance, sourceUrl } from '../domain/job-sources';
 import { scoreMatch } from '../domain/scoring';
+import { Application } from '../applications/application.schema';
 import { Job, JobMatch } from '../jobs/job.schema';
 
 export const DiscoverDto = z.object({
@@ -19,6 +20,8 @@ export const DiscoverDto = z.object({
   sources: z.array(z.enum(SOURCES)).min(1).max(SOURCES.length).optional(),
   limit: z.number().int().min(5).max(40).default(20),
   enrich: z.boolean().default(true),
+  /** Only postings from the last N days. Older ones are never shown. */
+  maxAgeDays: z.number().int().min(1).max(30).default(5),
 });
 export type DiscoverInput = z.infer<typeof DiscoverDto>;
 
@@ -43,6 +46,7 @@ export class DiscoveryService {
     @InjectModel(Job.name) private readonly jobs: Model<Job>,
     @InjectModel(JobMatch.name) private readonly matches: Model<JobMatch>,
     @InjectModel(CareerProfile.name) private readonly profiles: Model<CareerProfile>,
+    @InjectModel(Application.name) private readonly apps: Model<Application>,
     @Inject(AI_PROVIDER) private readonly ai: AiProvider,
     private readonly aiSettings: AiSettingsService,
     private readonly audit: AuditService,
@@ -96,15 +100,18 @@ export class DiscoveryService {
     const excl = profile.excludedCompanies.map((c) => c.toLowerCase());
     const bad = profile.excludedKeywords.map((k) => k.toLowerCase());
     const seen = new Set<string>();
+    const maxAge = dto.maxAgeDays ?? 5;
+    let staleSkipped = 0; const nowD = new Date();
     const rel = { titles: dto.query ? [] : profile.targetTitles, skills: profile.skills, query: dto.query };
     const candidates = fetched.flatMap((f) => f.jobs).filter((j) => {
       const k = `${j.source}:${j.providerJobId}`; if (seen.has(k)) return false; seen.add(k);
+      if (!isFresh(j.postedAt, maxAge, nowD)) { staleSkipped++; return false; }
       if (excl.includes(j.company.toLowerCase())) return false;
       const hay = `${j.title} ${j.description}`.toLowerCase();
       return !bad.some((w) => hay.includes(w));
     }).map((j) => ({ j, r: relevance(j, rel) })).filter((x) => x.r >= 1);
 
-    report(36, `Filtering: ${candidates.length} of ${fetched.reduce((n, f) => n + f.jobs.length, 0)} match your titles and skills`);
+    report(36, `Filtering: ${candidates.length} of ${fetched.reduce((n, f) => n + f.jobs.length, 0)} match your skills (${staleSkipped} older than ${maxAge} days skipped)`);
     const scored = candidates.map(({ j, r }) => {
       const skills = extractSkills(`${j.title} ${j.tags.join(' ')} ${j.description}`);
       const facts = { company: j.company, title: j.title, description: j.description, location: j.location, workMode: j.workMode, employmentType: j.employmentType, requiredSkills: skills, preferredSkills: [] as string[], experienceMin: yearsIn(j.description), salaryMax: j.salaryMax };
@@ -161,13 +168,17 @@ export class DiscoveryService {
     await this.matches.insertMany(stored.map((s) => ({ userId, jobId: s.id, careerProfileId: profile._id, score: s.row.report.score, recommendation: s.row.report.recommendation, report: s.row.report as any })), { ordered: false }).catch(() => undefined);
     await this.audit.record({ userId, actor, action: 'discovery.search', entityType: 'career_profile', entityId: String(profile._id), result: 'success', meta: { query: q, found: candidates.length, stored: stored.length, newJobs: stored.filter((s) => s.isNew).length } });
 
+    const appRows = await this.apps.find({ userId, jobId: { $in: stored.map((x) => x.id) } }).select('jobId status sentAt lastError').lean();
+    const appBy = new Map(appRows.map((a: any) => [String(a.jobId), a]));
     return {
-      query: q, scanned: fetched.reduce((n, f) => n + f.jobs.length, 0), relevant: candidates.length, sources: sourceReport, aiNote,
+      query: q, staleSkipped, maxAgeDays: maxAge, scanned: fetched.reduce((n, f) => n + f.jobs.length, 0), relevant: candidates.length, sources: sourceReport, aiNote,
       items: stored.map((s) => ({
         jobId: String(s.id), isNew: s.isNew, source: s.row.j.source, company: s.row.j.company, title: s.row.j.title, location: s.row.j.location ?? null, workMode: s.row.j.workMode ?? null,
         score: s.row.report.score, recommendation: s.row.report.recommendation, matched: s.row.report.matchedRequired, missing: s.row.report.missingRequired,
+        contactPhone: findPhone(s.row.j.description ?? '') ?? null, salary: s.row.j.salaryMax ? { min: s.row.j.salaryMin ?? null, max: s.row.j.salaryMax, currency: s.row.j.currency ?? null } : null, employmentType: s.row.j.employmentType ?? null,
         applyMethod: s.row.j.applicationEmail ? 'email' : 'link', applicationEmail: s.row.j.applicationEmail ?? null, applicationUrl: s.row.j.applicationUrl ?? null,
         postedAt: s.row.j.postedAt ?? null, aiReviewed: enriched.has(String(s.id)),
+        application: (() => { const a: any = appBy.get(String(s.id)); return a ? { id: String(a._id), status: a.status, sentAt: a.sentAt ?? null, error: a.lastError ?? null } : null; })(),
       })),
     };
   }

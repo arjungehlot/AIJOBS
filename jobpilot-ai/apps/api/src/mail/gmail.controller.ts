@@ -22,6 +22,18 @@ export class GmailController {
   }
   @Get('messages') messages(@CurrentUser() u: AuthUser, @Query(new ZodPipe(ListQ)) q: any) { return this.svc.listMessages(u.id, q); }
   @Get('threads/:id') thread(@CurrentUser() u: AuthUser, @Param('id') id: string) { return this.svc.getThread(u.id, id); }
+  /** View (inline) or download one attachment. Only types a browser can show safely are ever sent inline. */
+  @Get('messages/:mid/attachments/:part') async attachment(@CurrentUser() u: AuthUser, @Param('mid', new ZodPipe(z.string().regex(/^[a-f0-9]{8,32}$/i))) mid: string, @Param('part', new ZodPipe(z.string().regex(/^\d+(\.\d+){0,8}$/))) part: string, @Query('download') download: string | undefined, @Res() res: Response) {
+    const f = await this.svc.getAttachment(u.id, mid, part);
+    const SAFE_INLINE = ['application/pdf', 'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'text/plain'];
+    const inline = download !== '1' && SAFE_INLINE.includes(f.mime);
+    const name = f.filename.replace(/[\r\n"\\/]/g, '_');
+    res.setHeader('Content-Type', inline ? f.mime : 'application/octet-stream');
+    res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename="${name.replace(/[^\x20-\x7e]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(f.filename)}`);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.send(f.data);
+  }
   @Post('tracking') tracking(@CurrentUser() u: AuthUser, @Body(new ZodPipe(TrackDto)) d: any) { return this.svc.tracking(u.id, d.threadIds); }
   @Post('send') send(@CurrentUser() u: AuthUser, @Body(new ZodPipe(ComposeDto)) d: any) { return this.svc.compose(u.id, d); }
   @Post('disconnect') disconnect(@CurrentUser() u: AuthUser) { return this.svc.disconnect(u.id); }

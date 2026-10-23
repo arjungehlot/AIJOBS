@@ -26,6 +26,12 @@ export function findApplyEmail(text: string): string | undefined {
   return (text.match(EMAIL) ?? []).find((e) => !bad.test(e))?.toLowerCase();
 }
 
+/** A phone number the posting itself states (international +CC form, or a 10-digit Indian mobile). Returns it as written, trimmed. */
+export function findPhone(text: string): string | undefined {
+  const m = text.match(/(?:\+\d{1,3}[\s.-]?)\(?\d{2,5}\)?(?:[\s.-]?\d{2,5}){2,3}|(?<![\d.])[6-9]\d{4}[\s-]?\d{5}(?![\d])/g) ?? [];
+  return m.map((x) => x.trim()).find((x) => { const d = x.replace(/\D/g, '').length; return d >= 10 && d <= 13; });
+}
+
 const mode = (s: string): RawJob['workMode'] | undefined => (/\bremote\b|anywhere|worldwide/i.test(s) ? 'remote' : /\bhybrid\b/i.test(s) ? 'hybrid' : /\bon-?site\b|in[- ]office/i.test(s) ? 'onsite' : undefined);
 const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : undefined; };
 const str = (v: unknown, max = 300) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
@@ -99,4 +105,10 @@ export function relevance(j: Pick<RawJob, 'title' | 'description' | 'tags'>, r: 
   }
   const sk = r.skills.filter((k) => new RegExp(`(?<![a-z0-9])${k.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![a-z0-9])`).test(`${title} ${body}`)).length;
   return s + Math.min(sk, 6) * 0.35;
+}
+
+/** True when a posting is recent enough. Postings with no date are kept (we cannot tell), future dates count as fresh. */
+export function isFresh(postedAt: Date | undefined, maxAgeDays: number, now = new Date()): boolean {
+  if (!postedAt || Number.isNaN(postedAt.getTime())) return true;
+  return now.getTime() - postedAt.getTime() <= maxAgeDays * 86_400_000;
 }

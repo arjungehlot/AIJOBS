@@ -1,18 +1,23 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { Icon } from '@/components/ui';
 import { api, errText } from '@/lib/api';
 
-function Rates({ title, rows, note }: { title: string; rows: { key: string; rate: any }[]; note?: string }) {
+function Rates({ title, sub, rows }: { title: string; sub: string; rows: { key: string; rate: any }[] }) {
   const max = Math.max(1, ...rows.map((r) => r.rate.pct ?? 0));
   return (
-    <section className="card">
-      <h2>{title}</h2>{note && <p className="faint" style={{ margin: '0 0 6px' }}>{note}</p>}
-      {rows.length === 0 ? <div className="empty">No data yet.</div> : rows.map((r) => (
-        <div key={r.key} style={{ display: 'grid', gridTemplateColumns: '90px 1fr 92px', gap: 8, alignItems: 'center', padding: '4px 0' }}>
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.key}>{r.key}</span>
-          <div className="bar"><i style={{ width: `${((r.rate.pct ?? 0) / max) * 100}%`, opacity: r.rate.lowSample ? .35 : 1 }} /></div>
-          <span className="faint" style={{ textAlign: 'right' }}>{r.rate.pct}% <span title={r.rate.lowSample ? 'Fewer than 20 applications: treat as anecdote' : ''}>({r.rate.n}/{r.rate.d}){r.rate.lowSample && ' ⚠'}</span></span>
-        </div>))}
+    <section className="card an-card">
+      <div className="an-h"><h2>{title}</h2><small>{sub}</small></div>
+      {rows.length === 0 ? <div className="faint">No data yet.</div> : (
+        <div className="an-rows">
+          {rows.map((r) => (
+            <div key={r.key} className="an-row">
+              <span className="k" title={r.key}>{r.key}</span>
+              <div className="an-bar"><i className={r.rate.lowSample ? 'low' : ''} style={{ width: `${Math.max(2, ((r.rate.pct ?? 0) / max) * 100)}%` }} /></div>
+              <span className="v"><b>{r.rate.pct ?? 0}%</b><em>{r.rate.n}/{r.rate.d}</em></span>
+              {r.rate.lowSample && <span className="lo" title="Fewer than 20 applications: treat as anecdote">low n</span>}
+            </div>))}
+        </div>)}
     </section>
   );
 }
@@ -23,25 +28,42 @@ export default function Analytics() {
   if (err) return <div className="msg err">{err}</div>;
   if (!d) return <div className="card muted">Loading</div>;
   const t = d.totals;
-  const K = (l: string, v: string, s?: string) => <div className="card kpi s3"><span className="faint">{l}</span><b style={{ fontSize: 24 }}>{v}</b>{s && <span className="faint">{s}</span>}</div>;
+  const K = (cls: string, ic: string, l: string, v: string, s?: string) => (
+    <div className={`card kpi2 ${cls}`}><span className="chip"><Icon name={ic} size={16} /></span><span className="t"><b>{v}</b><span>{l}</span>{s && <small>{s}</small>}</span></div>);
+  const pct = (r: any) => (r.pct === null || r.pct === undefined ? '–' : `${r.pct}%`);
+  const stages = [
+    { l: 'Sent', n: t.sent, c: '#4F46E5' },
+    { l: 'Replied', n: t.overall?.n ?? 0, c: '#0284C7' },
+    { l: 'Interview', n: t.interview?.n ?? 0, c: '#059669' },
+  ];
+  const top = Math.max(1, t.sent);
   return (
     <>
-      <div className="ph"><div><h1>Analytics</h1><p>What your own history says. Bars are faded and marked ⚠ when a group has fewer than 20 applications, because small numbers mislead.</p></div></div>
-      <div className="grid">
-        {K('Applications sent', String(t.sent))}
-        {K('Response rate', t.overall.pct === null ? '–' : `${t.overall.pct}%`, t.overall.d ? `${t.overall.n} of ${t.overall.d}` : 'Nothing sent yet')}
-        {K('Interview rate', t.interview.pct === null ? '–' : `${t.interview.pct}%`, t.interview.d ? `${t.interview.n} of ${t.interview.d}` : undefined)}
-        {K('Avg days to reply', t.avgDaysToReply === null ? '–' : String(t.avgDaysToReply), 'from send to first status change')}
+      <div className="ph"><div><h1>Analytics</h1><p>What your own history says. Groups with fewer than 20 applications are tagged “low n” because small numbers mislead.</p></div></div>
+      <div className="an-kpis">
+        {K('k-indigo', 'send', 'Applications sent', String(t.sent))}
+        {K('k-sky', 'mail', 'Response rate', pct(t.overall), t.overall?.d ? `${t.overall.n} of ${t.overall.d}` : 'Nothing sent yet')}
+        {K('k-emerald', 'award', 'Interview rate', pct(t.interview), t.interview?.d ? `${t.interview.n} of ${t.interview.d}` : undefined)}
+        {K('k-amber', 'clock', 'Avg days to reply', t.avgDaysToReply === null ? '–' : String(t.avgDaysToReply), 'send to first status change')}
       </div>
-      {d.notes.map((n: string) => <div className="msg warn" key={n}>{n}</div>)}
+      {d.notes.length > 0 && <div className="an-note">{d.notes.map((n: string) => <span key={n}>ⓘ {n}</span>)}</div>}
       {t.sent === 0 ? <div className="card empty">Send your first application to unlock insights.</div> : (
-        <div className="grid">
-          <div className="s6"><Rates title="Response by match score" rows={d.byScore} /></div>
-          <div className="s6"><Rates title="Response by work mode" rows={d.byMode} /></div>
-          <div className="s6"><Rates title="Response by day sent" rows={d.byDow} /></div>
-          <div className="s6"><Rates title="Response by company" rows={d.byCompany} /></div>
+        <div className="an-grid">
+          <section className="card an-card an-funnel">
+            <div className="an-h"><h2>Funnel</h2><small>From sent to interview</small></div>
+            {stages.map((s, i) => (
+              <div key={s.l} className="fn">
+                <span className="k">{s.l}</span>
+                <div className="an-bar big"><i style={{ width: `${Math.max(2, (s.n / top) * 100)}%`, background: s.c }} /></div>
+                <span className="v"><b>{s.n}</b>{i > 0 && stages[i - 1].n > 0 && <em>{Math.round((s.n / stages[i - 1].n) * 100)}%</em>}</span>
+              </div>))}
+          </section>
+          <Rates title="By match score" sub="Response rate" rows={d.byScore} />
+          <Rates title="By work mode" sub="Response rate" rows={d.byMode} />
+          <Rates title="By day sent" sub="Response rate" rows={d.byDow} />
+          <Rates title="By company" sub="Response rate" rows={d.byCompany} />
         </div>)}
-      <p className="faint">{d.disclaimer}</p>
+      <p className="faint" style={{ marginTop: 10 }}>{d.disclaimer}</p>
     </>
   );
 }
