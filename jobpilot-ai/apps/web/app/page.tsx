@@ -1,141 +1,143 @@
 import Link from 'next/link';
-import { BarChart, Donut, Funnel, Legend, PALETTE } from '@/components/charts';
 import { Icon, Logo } from '@/components/ui';
+import { Console } from '@/components/landing/Console';
+import { Gate } from '@/components/landing/Gate';
+import { Reveal } from '@/components/landing/Reveal';
+import { SourceLogo } from '@/components/landing/SourceLogo';
 
-const FEATURES = [
-  { icon: 'scan', c: 'c-indigo', t: 'Analyze any job', d: 'Paste a description or drop a screenshot. Missing details stay empty for you to fill, never guessed.', live: true },
-  { icon: 'target', c: 'c-sky', t: 'Explainable match score', d: 'See which required and preferred skills you cover, what is missing, and how confident the score is.', live: true },
-  { icon: 'send', c: 'c-violet', t: 'Approve, then send', d: 'A send gate checks recipient trust, duplicates and daily limits. Unclear outcomes are verified, not retried blindly.', live: true },
-  { icon: 'kanban', c: 'c-emerald', t: 'Tracker and audit trail', d: 'Every status change and action is recorded with who did it, when, and the result.', live: true },
-  { icon: 'mail', c: 'c-amber', t: 'Gmail and Outlook reply tracking', d: 'Connect your mailbox, match replies to applications and extract interview details.', live: false },
-  { icon: 'bot', c: 'c-rose', t: 'Controlled autonomous agent', d: 'Scheduled discovery and approved auto-sending inside limits you set, with a one-click stop.', live: false },
-];
-const STEPS = [
-  ['Set your profile', 'Skills, experience, preferred modes and cities, excluded companies, and daily limits.'],
-  ['Add a job', 'From a screenshot or pasted text. Review the extracted fields before saving.'],
-  ['See the fit', 'A 0 to 100 score with a plain-language breakdown and honest gaps.'],
-  ['Approve and track', 'Review the draft, approve it, send, and follow the full history.'],
-];
+const SOURCES: [string, string][] = [['Remotive', 'remotive.com'], ['Arbeitnow', 'arbeitnow.com'], ['Remote OK', 'remoteok.com'], ['Jobicy', 'jobicy.com'], ['Himalayas', 'himalayas.app'], ['The Muse', 'themuse.com'], ['Adzuna India', 'adzuna.in']];
+const ALSO: [string, string][] = [['LinkedIn', 'linkedin.com'], ['Naukri', 'naukri.com'], ['Indeed', 'indeed.com']];
 const PLANS = [
-  { n: 'Free', d: 'Try the workflow', f: ['1 career profile', 'Job analyzer and scoring', 'Manual applications', 'Basic tracking'] },
-  { n: 'Pro', d: 'For active searches', f: ['Multiple career profiles', 'AI application drafts', 'Email integration', 'Analytics'], hl: true },
-  { n: 'Premium Agent', d: 'Automation with guardrails', f: ['Scheduled discovery', 'Auto-send within your rules', 'Follow-up automation', 'Higher limits'] },
-  { n: 'Teams', d: 'Coaches and career services', f: ['Multiple job seekers', 'Coach dashboard', 'Shared templates', 'Reporting'] },
+  { n: 'Free', d: 'Try the whole workflow on a few jobs', f: ['1 career profile', 'Job analyzer and scoring', 'Manual applications', 'Basic tracking'] },
+  { n: 'Pro', d: 'For an active search', f: ['Several career profiles', 'AI-written emails', 'Gmail sending and reply tracking', 'Analytics'], hl: true },
+  { n: 'Premium Agent', d: 'Automation inside your limits', f: ['Scheduled job discovery', 'Auto-send within your rules', 'Follow-up reminders', 'Higher daily limits'] },
+  { n: 'Teams', d: 'For coaches and career services', f: ['Several job seekers', 'Coach dashboard', 'Shared templates', 'Reporting'] },
 ];
 const FAQ = [
-  ['Will it apply to jobs without asking me?', 'Not unless you enable it. In the current build every application needs your approval, and recipients that are not verified need an extra confirmation.'],
-  ['Does it make things up in my applications?', 'The drafting rules only use facts from your profile. Where you lack a required skill, the draft says so plainly instead of claiming it.'],
-  ['What does the match score mean?', 'It is an estimate of fit between the listing and your profile. It is not a prediction of whether you will be hired.'],
-  ['Which parts are working today?', 'Job analysis, scoring, drafts, approval, guarded sending (with a test mailer), tracking and the audit log. Gmail and Outlook, inbox sync and the autonomous agent are planned and marked as such.'],
-  ['Is my data private?', 'Your records are scoped to your account on the server. Job posts and emails are treated as untrusted text and cannot change your rules.'],
+  ['Will it apply to jobs without asking me?', 'No, unless you switch on Autonomous mode and auto-send yourself. By default every email waits for your approval, and an address you typed by hand needs one more confirmation.'],
+  ['Does the AI make things up about me?', 'It writes only from your profile and resume. If a required skill is missing, the email says so plainly instead of claiming it.'],
+  ['Where do the jobs come from?', 'Public job boards that offer open feeds. For LinkedIn, Naukri and Indeed, the Job Finder opens a ready search in a new tab, because those sites do not allow importing their listings.'],
+  ['What does the match score mean?', 'It estimates how well a listing fits your profile. It does not predict whether you will be hired.'],
+  ['Is my data private?', 'Your records are tied to your account on the server. Job posts and incoming emails are treated as plain text and cannot change your rules.'],
 ];
 
 export default function Landing() {
-  const labels = ['1', '2', '3', '4', '5', '6', '7'].map((d) => `D${d}`);
   return (
-    <div className="lp">
-      <header className="lp-nav">
+    <div className="lp2">
+      <header className="l2-nav">
         <Logo size={16} />
-        <nav className="links" aria-label="Sections"><a href="#features">Features</a><a href="#how">How it works</a><a href="#control">Control</a><a href="#pricing">Plans</a><a href="#faq">FAQ</a></nav>
+        <nav aria-label="Sections"><a href="#tour">Tour</a><a href="#control">Control</a><a href="#pricing">Plans</a><a href="#faq">FAQ</a></nav>
         <span className="sp" />
         <Link href="/login" className="btn">Log in</Link>
         <Link href="/register" className="btn primary">Start free</Link>
       </header>
 
-      <section className="hero">
-        <div className="hero-in">
-          <span className="eyebrow"><b>New</b>Screenshot to application in minutes</span>
-          <h1>Your AI job search agent. <em>From discovery to interview.</em></h1>
-          <p className="lead">Find suitable jobs, understand your fit, draft honest applications and track every reply from one calm workspace. You stay in control of everything that gets sent.</p>
-          <div className="row" style={{ justifyContent: 'center' }}>
-            <Link href="/register" className="btn primary lg">Start free<Icon name="arrow" size={15} /></Link>
-            <a href="#how" className="btn lg">See how it works</a>
-          </div>
-
-          <div className="mock" aria-label="Product preview with sample data">
-            <div className="mock-bar"><i /><i /><i /><span className="faint" style={{ marginLeft: 8 }}>Sample preview, not real results</span></div>
-            <div className="mock-body">
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10 }}>
-                {[['Jobs discovered', '412', 'c-indigo', 'briefcase'], ['Suitable jobs', '74', 'c-sky', 'target'], ['Applications sent', '36', 'c-violet', 'send'], ['Interviews', '3', 'c-amber', 'users']].map(([l, v, c, i]) => (
-                  <div className="card kpi" key={l}><span className={`chip ${c}`}><Icon name={i} size={14} /></span><span className="v">{v}</span><span className="l">{l}</span></div>
-                ))}
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 10 }}>
-                <div className="card"><div className="card-h"><h2>Weekly activity</h2><Legend items={[{ label: 'Found', color: PALETTE[1] }, { label: 'Sent', color: PALETTE[0] }]} /></div>
-                  <BarChart height={150} width={380} labels={labels} series={[{ name: 'Found', color: PALETTE[1], values: [12, 18, 9, 22, 30, 14, 24] }, { name: 'Sent', color: PALETTE[0], values: [1, 2, 0, 3, 4, 2, 3] }]} /></div>
-                <div className="card"><div className="card-h"><h2>Pipeline</h2></div>
-                  <Funnel stages={[{ stage: 'Analyzed', count: 268 }, { stage: 'Shortlisted', count: 41 }, { stage: 'Applied', count: 36 }, { stage: 'Replied', count: 9 }, { stage: 'Interview', count: 3 }]} /></div>
-                <div className="card"><div className="card-h"><h2>Status</h2></div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <Donut size={104} center="36" sub="applications" parts={[{ label: 'Awaiting', value: 24, color: PALETTE[1] }, { label: 'Replied', value: 5, color: PALETTE[2] }, { label: 'Interview', value: 3, color: PALETTE[0] }, { label: 'Rejected', value: 4, color: PALETTE[5] }]} />
-                    <Legend items={[{ label: 'Awaiting', color: PALETTE[1] }, { label: 'Replied', color: PALETTE[2] }, { label: 'Interview', color: PALETTE[0] }, { label: 'Rejected', color: PALETTE[5] }]} />
-                  </div></div>
-              </div>
+      <section className="l2-hero">
+        <svg className="l2-path" viewBox="0 0 1200 520" preserveAspectRatio="none" aria-hidden="true">
+          <path id="fp" d="M-20 430 C 180 330, 300 470, 520 330 S 860 120, 1220 170" fill="none" stroke="#6366F1" strokeOpacity=".28" strokeWidth="2" strokeDasharray="3 9" strokeLinecap="round" />
+        </svg>
+        <span className="l2-plane" aria-hidden="true"><Icon name="send" size={14} /></span>
+        <div className="l2-hero-in">
+          <div className="copy">
+            <span className="badge"><i />Hassle-free job applications</span>
+            <h1>Set up once. Your AI agent finds jobs and applies for you.</h1>
+            <p>Create a profile, press <b>Find jobs</b>, and the agent does the rest: it picks the best matches, writes each email, attaches your resume, sends within your daily limit and tracks every reply.</p>
+            <div className="row">
+              <Link href="/register" className="btn primary lg">Start free<Icon name="arrow" size={15} /></Link>
+              <a href="#tour" className="btn lg">See how it works</a>
             </div>
+            <dl className="stats">
+              <div><dt>7</dt><dd>job boards searched at once</dd></div>
+              <div><dt>5 days</dt><dd>newest postings only</dd></div>
+              <div><dt>You</dt><dd>approve every email sent</dd></div>
+            </dl>
           </div>
+          <Console />
         </div>
       </section>
 
-      <section className="sec" id="features">
-        <h2>Everything between “found it” and “got the reply”</h2>
-        <p className="sub">Built around one rule: the AI proposes, and the system checks every action against your rules before it happens.</p>
-        <div className="feat">
-          {FEATURES.map((f) => (
-            <div className="card" key={f.t}>
-              <span className={`chip ${f.c}`}><Icon name={f.icon} size={17} /></span>
-              <h3>{f.t} <span className={`pill ${f.live ? 'ok' : 'gray'}`} style={{ marginLeft: 6 }}>{f.live ? 'Available' : 'Planned'}</span></h3>
-              <p>{f.d}</p>
+      <section className="l2-src" aria-label="Job sources">
+        <span>Reads openings from</span>
+        <div className="mq"><div className="trk">{[...SOURCES, ...SOURCES].map(([n, d], i) => <SourceLogo key={i} name={n} domain={d} />)}</div></div>
+        <span className="also">Also opens <span className="als">{ALSO.map(([n, d]) => <SourceLogo key={n} name={n} domain={d} />)}</span> searches</span>
+      </section>
+
+      <section className="l2-sec" id="tour">
+        <h2>From “Find jobs” to the interview invite</h2>
+        <p className="sub">The agent does the slow parts. You stay in charge of every send.</p>
+        <div className="bento">
+          <Reveal className="bx b-find">
+            <div className="tx"><h3>Finds fresh jobs</h3><p>Reads 7 job boards at once and hides anything older than 5 days, so you never write to a closed role.</p></div>
+            <div className="viz">
+              {[['Node.js Developer', 'Zeta Cloud', '1d'], ['Full Stack Engineer', 'Brightpay', '2d'], ['React Developer', 'Northwind', '4d'], ['Backend Engineer', 'Oldco', '9d']].map(([t, c, a], i) => (
+                <div key={t} className={`vr ${i === 3 ? 'old' : ''}`} style={{ ['--i' as any]: i }}><span className="lgo">{c[0]}</span><span><b>{t}</b><small>{c}</small></span><em>{a}</em></div>))}
             </div>
-          ))}
+          </Reveal>
+          <Reveal className="bx b-score">
+            <div className="tx"><h3>Scores every match</h3><p>Compares skills, experience, location and salary with your profile. Gaps are named, not hidden.</p></div>
+            <div className="viz">
+              <div className="ring"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="48" fill="none" stroke="#E6E9F8" strokeWidth="11" /><circle className="arc" cx="60" cy="60" r="48" fill="none" stroke="url(#g2)" strokeWidth="11" strokeLinecap="round" strokeDasharray="302" transform="rotate(-90 60 60)" /><defs><linearGradient id="g2" x1="0" x2="1"><stop offset="0" stopColor="#6366F1" /><stop offset="1" stopColor="#10B981" /></linearGradient></defs></svg><b>92</b></div>
+              <div className="gp"><span className="y">✓ Node.js</span><span className="y">✓ React</span><span className="n">✕ Kubernetes</span></div>
+            </div>
+          </Reveal>
+          <Reveal className="bx b-write">
+            <div className="tx"><h3>Writes and attaches</h3><p>Writes each email from your resume, then adds your signature, resume and extra files.</p></div>
+            <div className="viz mail">
+              <p className="l1">Hello Hiring Team,</p><p className="l2">I am applying for the Node.js Developer role. I have built ERP modules with Node.js, Express and MongoDB.</p>
+              <p className="l3">Best regards, <b>Arjun Gehlot</b></p>
+              <div className="fl"><span>📄 Resume.pdf</span><span>📎 Cover_Letter.pdf</span></div>
+            </div>
+          </Reveal>
+          <Reveal className="bx b-track">
+            <div className="tx"><h3>Tracks replies and interviews</h3><p>Matches Gmail replies to the right job, updates its status and saves interview dates with a prep plan.</p></div>
+            <div className="viz tl">
+              {[['Applied', '23 Oct', 'email sent with resume'], ['Replied', '24 Oct', 'HR answered'], ['Interview', '28 Oct', '11:00 AM IST, saved to tracker']].map(([s, d, n], i) => (
+                <div key={s} className="ev" style={{ ['--i' as any]: i }}><i /><span><b>{s}</b><small>{d} · {n}</small></span></div>))}
+            </div>
+          </Reveal>
         </div>
       </section>
 
-      <section className="sec" id="how">
-        <h2>How it works</h2>
-        <p className="sub">Four steps from a job post to a tracked application.</p>
-        <div className="flow">{STEPS.map(([t, d], i) => <div className="card" key={t}><div className="n">{i + 1}</div><h3>{t}</h3><p className="muted" style={{ marginTop: 4, lineHeight: 1.55 }}>{d}</p></div>)}</div>
-      </section>
-
-      <section className="sec" id="control">
-        <div className="band">
-          <div><h2>Privacy and control by design</h2><p style={{ color: '#CBD5E1', marginTop: 10, lineHeight: 1.6 }}>Automation is only useful if you trust it. Every limit is yours to set and every action leaves a record.</p></div>
-          <ul style={{ margin: 0, paddingLeft: 18 }}>
-            <li>Nothing is sent without your approval.</li><li>Unverified recipients need an explicit confirmation.</li>
-            <li>Duplicate applications are blocked, even under concurrent requests.</li><li>Unclear send results are checked with the provider, not retried blindly.</li>
-          </ul>
-          <ul style={{ margin: 0, paddingLeft: 18 }}>
-            <li>Missing details stay empty instead of being invented.</li><li>Job posts and emails cannot change your rules.</li>
-            <li>An append-only audit log of every action.</li><li>No fake testimonials or hiring-success claims, here or in the app.</li>
-          </ul>
+      <section className="l2-ctl" id="control">
+        <div className="in">
+          <div className="cp">
+            <h2>The AI proposes. The server decides.</h2>
+            <p>Automation only helps if you can trust it. Every email passes the same checks, whoever or whatever asked for it. Try a few cases.</p>
+            <ul>
+              <li>Nothing is sent without your approval.</li>
+              <li>Duplicate applications are blocked.</li>
+              <li>A daily limit you choose, and an emergency stop.</li>
+              <li>An audit log of every action.</li>
+            </ul>
+          </div>
+          <Gate />
         </div>
       </section>
 
-      <section className="sec" id="pricing">
+      <section className="l2-sec" id="pricing">
         <h2>Plans</h2>
-        <p className="sub">Pricing is set at launch. Plan limits are enforced on the server.</p>
-        <div className="price">
+        <p className="sub">Pricing is set at launch. Limits are enforced on the server.</p>
+        <div className="plans">
           {PLANS.map((p) => (
-            <div className={`card ${p.hl ? 'hl' : ''}`} key={p.n}>
-              <div><h3 style={{ fontSize: 16 }}>{p.n}</h3><p className="muted">{p.d}</p></div>
+            <div className={`pl ${p.hl ? 'hl' : ''}`} key={p.n}>
+              <h3>{p.n}</h3><p>{p.d}</p>
               <ul>{p.f.map((x) => <li key={x}>{x}</li>)}</ul>
-              <Link href="/register" className={`btn ${p.hl ? 'primary' : ''}`} style={{ justifyContent: 'center', marginTop: 'auto' }}>Start free</Link>
-            </div>
-          ))}
+              <Link href="/register" className={`btn ${p.hl ? 'primary' : ''}`}>Start free</Link>
+            </div>))}
         </div>
       </section>
 
-      <section className="sec" id="faq" style={{ maxWidth: 760 }}>
+      <section className="l2-sec narrow" id="faq">
         <h2>Questions</h2>
-        <p className="sub">Straight answers about what it does and does not do.</p>
         {FAQ.map(([q, a]) => <details key={q}><summary>{q}</summary><p>{a}</p></details>)}
       </section>
 
-      <section className="cta">
-        <h2 style={{ fontSize: 28, letterSpacing: '-0.025em' }}>Try it on one real job</h2>
-        <p className="muted" style={{ margin: '8px 0 18px' }}>Create a profile, paste a job and see the fit in a couple of minutes.</p>
+      <section className="l2-cta">
+        <h2>Send your first application today</h2>
+        <p>Create a profile, upload your resume, and let it find the first five jobs.</p>
         <Link href="/register" className="btn primary lg">Start free<Icon name="arrow" size={15} /></Link>
       </section>
-      <footer className="foot"><span>© JobPilot AI</span><span>Privacy policy and terms to be published before launch.</span></footer>
+      <footer className="l2-foot"><Logo size={14} /><span>Your job search, with you at the controls.</span></footer>
     </div>
   );
 }

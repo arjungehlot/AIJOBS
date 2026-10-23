@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import type { ReactNode } from 'react';
 
 const P: Record<string, string> = {
@@ -38,11 +39,11 @@ export function Icon({ name, size = 16 }: { name: keyof typeof P | string; size?
   );
 }
 
-export function Logo({ size = 15 }: { size?: number }) {
+export function Logo({ size = 15, href = '/' }: { size?: number; href?: string }) {
   return (
-    <div className="logo" style={{ fontSize: size }}>
+    <Link href={href} className="logo" style={{ fontSize: size }} aria-label="JobPilot AI, go to the home page" title="Home page">
       <i><Icon name="send" size={15} /></i>JobPilot AI
-    </div>
+    </Link>
   );
 }
 
