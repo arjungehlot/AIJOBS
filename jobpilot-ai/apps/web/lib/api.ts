@@ -1,4 +1,10 @@
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
+// Server-side (SSR / RSC): Vercel injects the api service's internal URL via the binding as API_URL.
+// Client-side (browser): NEXT_PUBLIC_API_URL is baked into the bundle at build time; when unset it
+// defaults to a same-origin relative path, which Vercel's /api/* rewrite forwards to the api service.
+const BASE =
+  typeof window === 'undefined'
+    ? `${process.env.API_URL ?? 'http://localhost:4000'}/api/v1`
+    : (process.env.NEXT_PUBLIC_API_URL ?? '/api/v1');
 const KEY = 'jobpilot.token';
 
 // NOTE: a localStorage token is a development shortcut. Production should use an httpOnly cookie session.
