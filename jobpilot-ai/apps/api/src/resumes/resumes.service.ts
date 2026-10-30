@@ -23,6 +23,13 @@ export const ResumeUploadDto = z.object({
   mime: z.enum(['application/pdf', 'text/plain']),
   base64: z.string().min(40),
 });
+export const EnhanceResumeDto = z.object({ text: z.string().trim().min(20, 'Write or paste some resume text first').max(60000), targetRole: z.string().trim().max(120).optional(), action: z.enum(['structure', 'improve', 'grammar', 'ats']) });
+const RESUME_ACTIONS: Record<string, string> = {
+  structure: 'Organise this into the clean resume layout described, keeping every fact and nearly every word.',
+  improve: 'Improve the wording: concise bullets starting with strong action verbs, remove filler. Do not add numbers or claims that are not in the text.',
+  grammar: 'Fix spelling, grammar, punctuation and capitalisation only. Keep the layout and wording otherwise.',
+  ats: 'Make it ATS-friendly for the target role: reorder and rename sections plainly, and use the exact standard names for technologies already mentioned. Do not add skills that are not in the text.',
+};
 const MAX_RESUME_BYTES = 4 * 1024 * 1024;
 export const JobRefDto = z.object({ jobId: z.string().regex(/^[a-f0-9]{24}$/i) });
 const LIMITS: Record<string, number> = { free: 3, pro: 25, premium_agent: 50, teams: 100 };
@@ -56,6 +63,14 @@ export class ResumesService {
   }
 
   /** Stores the original file (for attaching to applications) and reads its text so scoring and drafting can use it. */
+  async enhance(userId: string, dto: z.infer<typeof EnhanceResumeDto>) {
+    if (!this.ai.rewriteResume) throw new BadRequestException('Resume enhancement needs the Gemini AI provider. Set GEMINI_API_KEY on the server.');
+    const instr = RESUME_ACTIONS[dto.action] + (dto.targetRole ? ` Target role: ${dto.targetRole}.` : '');
+    const out = await this.ai.rewriteResume(dto.text, instr, { model: await this.aiSettings.modelFor(userId) });
+    if (!out) throw new BadRequestException('Resume enhancement needs the Gemini AI provider. Set GEMINI_API_KEY on the server.');
+    return { text: out };
+  }
+
   async upload(userId: string, dto: z.infer<typeof ResumeUploadDto>) {
     const bytes = Buffer.from(dto.base64, 'base64');
     if (bytes.length > MAX_RESUME_BYTES) throw new PayloadTooLargeException('Resume is larger than 4 MB');

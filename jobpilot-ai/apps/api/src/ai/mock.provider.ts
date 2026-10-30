@@ -39,6 +39,9 @@ export class MockAiProvider implements AiProvider {
   }
 
   async draftEmail(c: DraftContext) { return templateDraft(c); }
+  async rewriteText(): Promise<string | null> { return null; }
+  async extractEmails(): Promise<null> { return null; }
+  async rewriteResume(): Promise<string | null> { return null; }
 
   async parseResume(input: ResumeInput): Promise<ParsedResume> {
     if (input.kind === 'pdf') throw new BadRequestException('Reading a PDF needs the Gemini AI provider. Set GEMINI_API_KEY, or paste the resume text instead.');

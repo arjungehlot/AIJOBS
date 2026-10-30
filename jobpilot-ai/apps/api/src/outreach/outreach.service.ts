@@ -18,6 +18,16 @@ const oid = z.string().regex(/^[a-f0-9]{24}$/i);
 export const ParseDto = z.object({ text: z.string().max(60_000) });
 export const PreviewDto = z.object({ subject: z.string().max(300), body: z.string().max(8000), resumeId: oid.optional(), name: z.string().max(80).optional(), company: z.string().max(80).optional() });
 export const DraftDto = z.object({ role: z.string().trim().max(120).optional(), tone: z.enum(['professional', 'concise', 'friendly', 'technical']).default('professional') });
+export const ImageDto = z.object({ image: z.string().max(11_000_000).regex(/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/, 'Use a PNG, JPEG or WebP image') });
+export const EnhanceDto = z.object({ body: z.string().trim().min(20).max(8000), action: z.enum(['improve', 'shorter', 'friendlier', 'formal', 'confident', 'grammar']) });
+const ACTIONS: Record<string, string> = {
+  improve: 'Improve clarity, flow and polish while keeping about the same length.',
+  shorter: 'Make it clearly shorter and tighter (about 40% fewer words) without losing the key points.',
+  friendlier: 'Make the tone warmer and more personable, still professional.',
+  formal: 'Make the tone more formal and polished.',
+  confident: 'Make it sound more confident and specific, without exaggerating or inventing anything.',
+  grammar: 'Fix spelling, grammar and punctuation only. Do not change wording otherwise.',
+};
 export const CampaignDto = z.object({
   name: z.string().trim().min(1).max(120), subject: z.string().trim().min(3).max(300), body: z.string().trim().min(20).max(8000),
   resumeId: oid, includeExtraFiles: z.boolean().default(true), gapSec: z.number().int().min(20).max(600).default(45),
@@ -72,6 +82,27 @@ export class OutreachService {
     let t = b.trim().replace(/^(hello|hi|dear)[^\n,]*,?/i, 'Hello {{name}},');
     if (!/\{\{name\}\}/i.test(t)) t = `Hello {{name}},\n\n${t}`;
     return t.replace(/\byour company\b/gi, '{{company}}');
+  }
+
+  /** Reads addresses out of a pasted screenshot. The AI only proposes; every address is re-validated here and the user ticks which to use. */
+  async fromImage(userId: string, dto: z.infer<typeof ImageDto>) {
+    if (!this.ai.extractEmails) throw new BadRequestException('Reading images needs the Gemini AI provider. Set GEMINI_API_KEY on the server.');
+    const m = /^data:(image\/(?:png|jpeg|webp));base64,(.*)$/.exec(dto.image)!;
+    const found = await this.ai.extractEmails({ mime: m[1] as any, base64: m[2] });
+    if (!found) throw new BadRequestException('Reading images needs the Gemini AI provider. Set GEMINI_API_KEY on the server.');
+    const u = await this.users.findById(userId).lean();
+    const text = found.map((f) => [f.email, f.name ?? '', f.company ?? ''].map((x) => x.replace(/[,\n]/g, ' ')).join(', ').replace(/(, )+$/, '')).join('\n');
+    const r = parseRecipients(text, { selfEmail: u?.email, max: MAX_RECIPIENTS });
+    const prior = r.valid.length ? await this.recs.find({ userId, email: { $in: r.valid.map((v) => v.email) }, status: 'sent', sentAt: { $gte: new Date(Date.now() - 60 * 86_400_000) } }).select('email').lean() : [];
+    const already = new Set(prior.map((p) => p.email));
+    return { ...r, alreadyContacted: r.valid.filter((v) => already.has(v.email)).map((v) => v.email), seen: found.length };
+  }
+
+  async enhance(userId: string, dto: z.infer<typeof EnhanceDto>) {
+    if (!this.ai.rewriteText) throw new BadRequestException('Text enhancement needs the Gemini AI provider. Set GEMINI_API_KEY on the server.');
+    const out = await this.ai.rewriteText(dto.body, ACTIONS[dto.action]);
+    if (!out) throw new BadRequestException('Text enhancement needs the Gemini AI provider. Set GEMINI_API_KEY on the server.');
+    return { body: this.withPlaceholders(out) };
   }
 
   async preview(userId: string, dto: z.infer<typeof PreviewDto>) {

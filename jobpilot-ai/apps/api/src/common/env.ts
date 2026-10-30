@@ -27,6 +27,7 @@ export const env = {
   /** One or many keys: GEMINI_API_KEY=key1,key2,key3 (also GEMINI_API_KEYS and GOOGLE_API_KEY). */
   get geminiKeys() { return parseKeys(process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEYS, process.env.GOOGLE_API_KEY); },
   get geminiKey() { return this.geminiKeys[0] ?? ''; },
+  get geminiVisionModel() { return (process.env.GEMINI_VISION_MODEL ?? 'gemini-flash-lite-latest').trim(); },
   get geminiDefaultModel() { return (process.env.GEMINI_MODEL ?? 'gemini-flash-latest').trim(); },
   /**
    * A Gemini key switches AI on. The old .env.example shipped AI_PROVIDER=mock, so "mock" must not override a key;

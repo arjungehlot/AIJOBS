@@ -1,7 +1,9 @@
 'use client';
 import { FormEvent, useEffect, useState } from 'react';
 import { Gauge } from '@/components/charts';
+import { Icon } from '@/components/ui';
 import { api, errText } from '@/lib/api';
+import { ResumeView } from '@/components/resume-view';
 
 const SAMPLE = `Aarav Mehta — Full Stack Developer\n\nSkills: HTML, CSS, JavaScript, React, Node.js, MongoDB, Git\n\nExperience\nBuilt REST APIs in Node.js and Express serving 40k users. Wrote React dashboards and added Jest tests. Shipped CI/CD with Docker on AWS.`;
 
@@ -11,6 +13,14 @@ export default function Resumes() {
   const [sel, setSel] = useState<string>(''); const [jobId, setJobId] = useState('');
   const [res, setRes] = useState<any>(null); const [tailor, setTailor] = useState<any>(null);
   const [form, setForm] = useState({ title: '', targetRole: '', text: '' });
+  const [aiBusy, setAiBusy] = useState(''); const [aiUndo, setAiUndo] = useState<string | null>(null); const [aiMsg, setAiMsg] = useState('');
+  async function aiEdit(action: string) {
+    setAiBusy(action); setAiMsg(''); setErr('');
+    try {
+      const r = await api<{ text: string }>('/resumes/enhance', { body: { text: form.text, targetRole: form.targetRole || undefined, action } });
+      setAiUndo(form.text); setForm((f) => ({ ...f, text: r.text })); setAiMsg('Updated by AI. Check every line is true before saving.');
+    } catch (x) { setErr(errText(x)); } finally { setAiBusy(''); }
+  }
   const [up, setUp] = useState({ title: '', targetRole: '' }); const [file, setFile] = useState<File | null>(null); const [busy, setBusy] = useState(false); const [ok, setOk] = useState('');
   const [err, setErr] = useState('');
   const load = () => api<any[]>('/resumes').then((r) => { setList(r); if (!sel && r[0]) setSel(r[0]._id); }).catch((e) => setErr(errText(e)));
@@ -63,6 +73,19 @@ export default function Resumes() {
             <div className="card-h"><h2>Add resume text</h2><button type="button" className="btn sm" onClick={() => setForm({ title: 'Full Stack – base', targetRole: 'Full Stack Developer', text: SAMPLE })}>Example</button></div>
             <label className="f">Title<input required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} /></label>
             <label className="f">Target role<input value={form.targetRole} onChange={(e) => setForm({ ...form, targetRole: e.target.value })} /></label>
+            <div className="ou-ai">
+              <div className="ou-ai-row">
+                <span className="ou-ai-ic"><Icon name="spark" size={15} /></span>
+                <div style={{ flex: 1, minWidth: 0, lineHeight: 1.3 }}><b style={{ fontSize: 13 }}>AI Resume Assistant</b><div className="faint" style={{ fontSize: 11.5 }}>Cleans up layout and wording. It never adds facts.</div></div>
+                <button type="button" className="ou-ai-go" onClick={() => aiEdit('structure')} disabled={!!aiBusy || form.text.trim().length < 20}><Icon name="spark" size={14} />{aiBusy === 'structure' ? 'Working…' : 'Format with AI'}</button>
+              </div>
+              <div className="ou-ai-chips" role="group" aria-label="Enhance the resume">
+                <span>Enhance</span>
+                {([['improve', 'Improve wording'], ['grammar', 'Fix grammar'], ['ats', 'ATS-friendly']] as const).map(([k, l]) => <button key={k} type="button" onClick={() => aiEdit(k)} disabled={!!aiBusy || form.text.trim().length < 20}>{aiBusy === k ? '…' : l}</button>)}
+                {aiUndo !== null && <button type="button" className="ou-undo" onClick={() => { setForm((f) => ({ ...f, text: aiUndo })); setAiUndo(null); setAiMsg(''); }}>↶ Undo</button>}
+              </div>
+              {aiMsg && <div className="ou-ai-note">{aiMsg}</div>}
+            </div>
             <label className="f">Resume text<textarea required rows={8} style={{ height: 'auto' }} value={form.text} onChange={(e) => setForm({ ...form, text: e.target.value })} placeholder="Paste plain text. Include a line starting with “Skills:”." /></label>
             <button className="btn primary">Save resume</button>
           </form>
@@ -113,7 +136,7 @@ function ResumeText({ id, onDelete }: { id: string; onDelete: () => void }) {
   return (
     <section className="card">
       <div className="card-h"><h2>Text</h2><button className="btn sm" onClick={onDelete}>Delete version</button></div>
-      <pre style={{ whiteSpace: 'pre-wrap', margin: 0, fontFamily: 'inherit', fontSize: 12.5, maxHeight: 260, overflow: 'auto' }}>{t?.text ?? 'Loading…'}</pre>
+      <div style={{ maxHeight: 560, overflow: 'auto', paddingRight: 6 }}>{t?.text ? <ResumeView text={t.text} /> : <span className="faint">Loading…</span>}</div>
     </section>
   );
 }

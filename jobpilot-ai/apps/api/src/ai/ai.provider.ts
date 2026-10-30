@@ -15,6 +15,12 @@ export interface AiProvider {
   extractJob(input: JobInput, opts?: AiOpts): Promise<ExtractedJob>;
   /** Drafts an application email from verified facts only. */
   draftEmail(ctx: DraftContext, opts?: AiOpts): Promise<{ subject: string; body: string }>;
+  /** Rewrites the user's own email text per an instruction, keeping facts and {{placeholders}} unchanged. Returns null when no real AI is configured. */
+  rewriteText?(text: string, instruction: string, opts?: AiOpts): Promise<string | null>;
+  /** Rewrites a resume's text (layout, wording, grammar). Never adds facts. Returns null when no real AI is configured. */
+  rewriteResume?(text: string, instruction: string, opts?: AiOpts): Promise<string | null>;
+  /** Reads email addresses (and a visible name/company beside each) out of a screenshot or photo. Returns null when no real AI is configured. */
+  extractEmails?(image: { mime: 'image/png' | 'image/jpeg' | 'image/webp'; base64: string }, opts?: AiOpts): Promise<{ email: string; name?: string; company?: string }[] | null>;
   /** Reads a resume (PDF or text) into plain text plus a few facts. Never adds anything that is not in the document. */
   parseResume(input: ResumeInput, opts?: AiOpts): Promise<ParsedResume>;
   /** Models the configured key can use. May be a built-in list when the provider cannot be asked. */
