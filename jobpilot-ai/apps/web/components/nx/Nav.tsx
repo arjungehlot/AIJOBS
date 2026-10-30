@@ -1,4 +1,5 @@
 'use client';
+import { BrandLogo } from '@/components/brand';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { Icon } from '@/components/ui';
@@ -16,7 +17,7 @@ export function Nav() {
   return (
     <header className={`nx-nav ${solid || open ? 'solid' : ''}`}>
       <div className="nx-nav-in">
-        <Link href="/" className="nx-logo" aria-label="JobPilot AI home"><i><Icon name="send" size={15} /></i>JobPilot AI</Link>
+        <BrandLogo variant="dark" height={34} label="JobPilot AI home" />
         <nav className="nx-links" aria-label="Sections">{LINKS.map(([n, h]) => <a key={h} href={h}>{n}</a>)}</nav>
         <span className="nx-sp" />
         <Link href="/login" className="nx-btn ghost sm nx-hide-sm">Log in</Link>

@@ -187,3 +187,4 @@
 @media (prefers-reduced-motion: reduce) {
   .nx *, .nx *::before, .nx *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
 }
+.nx-foot .brand-full, .nx-nav .brand-full, header .brand-full { filter: drop-shadow(0 0 14px rgba(59,130,246,.35)); }

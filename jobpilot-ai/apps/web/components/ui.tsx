@@ -1,3 +1,4 @@
+import { BrandLogo } from '@/components/brand';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 
@@ -39,12 +40,8 @@ export function Icon({ name, size = 16 }: { name: keyof typeof P | string; size?
   );
 }
 
-export function Logo({ size = 15, href = '/' }: { size?: number; href?: string }) {
-  return (
-    <Link href={href} className="logo" style={{ fontSize: size }} aria-label="JobPilot AI, go to the home page" title="Home page">
-      <i><Icon name="send" size={15} /></i>JobPilot AI
-    </Link>
-  );
+export function Logo({ size = 15, href = '/', variant = 'light' }: { size?: number; href?: string; variant?: 'light' | 'dark' }) {
+  return <BrandLogo variant={variant} height={Math.round(size * 2)} href={href} />;
 }
 
 export function Pill({ tone = '', children }: { tone?: 'ok' | 'warn' | 'bad' | 'gray' | ''; children: ReactNode }) {

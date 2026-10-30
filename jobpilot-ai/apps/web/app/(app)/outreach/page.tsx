@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Icon, Pill } from '@/components/ui';
 import { api, errText } from '@/lib/api';
+import { BrandMark } from '@/components/brand';
 
 type Rec = { email: string; name?: string; company?: string };
 type Parsed = { valid: Rec[]; invalid: { line: string; reason: string }[]; duplicates: number; truncated: number; alreadyContacted: string[] };
@@ -147,7 +148,7 @@ export default function Outreach() {
   return (
     <div className="ou">
       <header className="ou-bar-top">
-        <div className="ou-ttl"><span className="ou-logo"><Icon name="send" size={16} /></span><div><h1>HR Outreach</h1><small>AI writes it, the agent sends it one by one with your resume</small></div></div>
+        <div className="ou-ttl"><span className="ou-logo"><BrandMark size={34} /></span><div><h1>HR Outreach</h1><small>AI writes it, the agent sends it one by one with your resume</small></div></div>
         <div className="ou-pills">
           <span className="ou-pill"><i className={`ou-dot ${lim?.gmailConnected ? 'on' : ''}`} />{lim ? (lim.gmailConnected ? 'Gmail connected' : <a href="/settings/email">Connect Gmail</a>) : '…'}</span>
           <span className="ou-pill"><b>{n}</b> ready{n > 0 && <em>· ≈{minutes} min</em>}</span>

@@ -1,12 +1,12 @@
-import Link from 'next/link';
+import { BrandLogo } from '@/components/brand';
 import type { ReactNode } from 'react';
 
-export const SUPPORT_EMAIL = process.env.NEXT_PUBLIC_SUPPORT_EMAIL || 'techbuildsoftware@gmail.com';
+export const SUPPORT_EMAIL = process.env.NEXT_PUBLIC_SUPPORT_EMAIL || 'ui@smartitbox.in';
 
 export function Legal({ title, updated, children }: { title: string; updated: string; children: ReactNode }) {
   return (
     <main style={{ maxWidth: 780, margin: '0 auto', padding: '40px 20px 80px', fontSize: 15, lineHeight: 1.7 }}>
-      <Link href="/" style={{ fontWeight: 700, color: 'var(--primary-600, #4F46E5)', textDecoration: 'none' }}>← JobPilot AI</Link>
+      <BrandLogo variant="light" height={36} />
       <h1 style={{ fontFamily: 'var(--display)', fontSize: 34, margin: '18px 0 4px' }}>{title}</h1>
       <p style={{ color: '#64748B', marginTop: 0 }}>Last updated: {updated}</p>
       <div className="legal-body">{children}</div>

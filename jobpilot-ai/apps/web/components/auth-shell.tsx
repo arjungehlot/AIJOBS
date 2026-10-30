@@ -9,7 +9,7 @@ export function AuthShell({ children }: { children: ReactNode }) {
     <div className="auth">
       <div className="auth-box">
         <aside className="auth-hero" aria-label="About JobPilot AI">
-          <Link href="/" aria-label="JobPilot AI home"><Logo size={18} /></Link>
+          <div className="brand-pill"><Logo size={16} /></div>
           <div>
             <h2>Your AI job search agent, with you in control.</h2>
             <p style={{ marginTop: 8 }}>Understand every match, apply with honest drafts, and approve each email before it goes out.</p>
