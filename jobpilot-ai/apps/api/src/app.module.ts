@@ -20,6 +20,7 @@ import { FollowUpsModule } from './followups/followups.module';
 import { InboxModule } from './inbox/inbox.module';
 import { PrepModule } from './prep/prep.module';
 import { DiscoveryModule } from './discovery/discovery.module';
+import { OutreachModule } from './outreach/outreach.module';
 import { DemoModule } from './demo/demo.module';
 import { ResumesModule } from './resumes/resumes.module';
 
@@ -30,7 +31,7 @@ import { ResumesModule } from './resumes/resumes.module';
     AdminModule,
     AuditModule, AiModule, MailModule,
     AuthModule, CareerProfilesModule, JobsModule, ApplicationsModule,
-    ContactsModule, ResumesModule, InboxModule, FollowUpsModule, AgentModule, AnalyticsModule, PrepModule, DiscoveryModule, DemoModule,
+    ContactsModule, ResumesModule, InboxModule, FollowUpsModule, AgentModule, AnalyticsModule, PrepModule, DiscoveryModule, DemoModule, OutreachModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: AuthGuard }],

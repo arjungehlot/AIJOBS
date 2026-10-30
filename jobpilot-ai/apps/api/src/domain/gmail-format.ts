@@ -11,7 +11,7 @@ const safeName = (n: string) => n.replace(/[^\w.\- ()]+/g, '_').slice(0, 120) ||
  * Builds an RFC 5322 message. Plain text only, or multipart/mixed when attachments are given.
  * The Message-ID carries the idempotency key so findSent can locate it.
  */
-export function buildMime(m: { from: string; to: string; subject: string; body: string; key: string; inReplyTo?: string; references?: string; attachments?: MimeAttachment[] }): string {
+export function buildMime(m: { from: string; to: string; subject: string; body: string; html?: string; key: string; inReplyTo?: string; references?: string; attachments?: MimeAttachment[] }): string {
   const head = [
     `From: ${clean(m.from)}`, `To: ${clean(m.to)}`, `Subject: ${encWord(clean(m.subject))}`,
     `Message-ID: <${m.key}@${MSGID_DOMAIN}>`,
@@ -20,14 +20,14 @@ export function buildMime(m: { from: string; to: string; subject: string; body: 
     'MIME-Version: 1.0',
   ];
   const text = wrap76(m.body.replace(/\r?\n/g, '\r\n'));
-  if (!m.attachments?.length) {
-    return [...head, 'Content-Type: text/plain; charset="UTF-8"', 'Content-Transfer-Encoding: base64', '', text].join('\r\n');
-  }
-  const b = `jp_${m.key.slice(0, 24)}`;
-  const parts: string[] = [
-    ...head, `Content-Type: multipart/mixed; boundary="${b}"`, '',
-    `--${b}`, 'Content-Type: text/plain; charset="UTF-8"', 'Content-Transfer-Encoding: base64', '', text,
-  ];
+  const k = m.key.slice(0, 24);
+  // The readable part: plain text, or text + HTML as multipart/alternative (HTML last, as clients prefer the last part).
+  const body = m.html
+    ? { type: `multipart/alternative; boundary="jpa_${k}"`, lines: [`--jpa_${k}`, 'Content-Type: text/plain; charset="UTF-8"', 'Content-Transfer-Encoding: base64', '', text, `--jpa_${k}`, 'Content-Type: text/html; charset="UTF-8"', 'Content-Transfer-Encoding: base64', '', wrap76(m.html), `--jpa_${k}--`] }
+    : { type: 'text/plain; charset="UTF-8"', lines: ['Content-Transfer-Encoding: base64', '', text] };
+  if (!m.attachments?.length) return [...head, `Content-Type: ${body.type}`, ...(m.html ? [''] : []), ...body.lines].join('\r\n');
+  const b = `jp_${k}`;
+  const parts: string[] = [...head, `Content-Type: multipart/mixed; boundary="${b}"`, '', `--${b}`, `Content-Type: ${body.type}`, ...(m.html ? [''] : []), ...body.lines];
   for (const a of m.attachments) {
     const n = safeName(a.filename);
     parts.push(`--${b}`, `Content-Type: ${clean(a.mime)}; name="${n}"`, `Content-Disposition: attachment; filename="${n}"`, 'Content-Transfer-Encoding: base64', '', wrap76(a.data));

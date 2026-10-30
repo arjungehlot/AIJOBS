@@ -1,22 +1,25 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
+import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { randomBytes } from 'node:crypto';
 import { Model } from 'mongoose';
 import { Application } from '../applications/application.schema';
 import { AuditService } from '../audit/audit.service';
+import { signToken } from '../common/auth';
 import { env } from '../common/env';
 import { decryptSecret, encryptSecret } from '../domain/crypto';
 import { EMAIL_RE, buildMime, extractText, parseAddress } from '../domain/gmail-format';
 import { classifyReply } from '../domain/reply-classifier';
 import { InboundMessage } from '../inbox/message.schema';
+import { User } from '../users/user.schema';
 import { MailAccount } from './mail-account.schema';
 import { MailOutcomeUnknownError, MailRejectedError, OutgoingMail, SentMail } from './mail.provider';
 
-const SCOPES = [
-  'openid', 'email',
-  'https://www.googleapis.com/auth/gmail.send',     // send the applications you approve
-  'https://www.googleapis.com/auth/gmail.readonly', // read replies in threads of applications you sent
-];
+const SEND_SCOPE = 'https://www.googleapis.com/auth/gmail.send';     // send the applications you approve
+const READ_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly'; // read replies in threads of applications you sent
+/** GOOGLE_REQUEST_READ=false asks only for the send permission (Google treats read access as a "restricted" scope with a costlier review). */
+const scopes = () => ['openid', 'email', 'profile', SEND_SCOPE, ...(process.env.GOOGLE_REQUEST_READ === 'false' ? [] : [READ_SCOPE])];
 const GMAIL = 'https://gmail.googleapis.com/gmail/v1/users/me';
 import { MSGID_DOMAIN } from '../domain/gmail-format';
 import { randomUUID } from 'node:crypto';
@@ -32,6 +35,7 @@ export class GmailService {
     @InjectModel(MailAccount.name) private readonly accounts: Model<MailAccount>,
     @InjectModel(InboundMessage.name) private readonly inbound: Model<InboundMessage>,
     @InjectModel(Application.name) private readonly apps: Model<Application>,
+    @InjectModel(User.name) private readonly users: Model<User>,
     private readonly audit: AuditService,
   ) {}
 
@@ -49,15 +53,52 @@ export class GmailService {
     if (!env.gmailConfigured) throw new BadRequestException('GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are not set on the server');
     const state = jwt.sign({ sub: userId, purpose: 'gmail_connect' }, env.authSecret, { expiresIn: '10m' });
     const q = new URLSearchParams({
-      client_id: env.googleClientId, redirect_uri: env.gmailRedirectUri, response_type: 'code', scope: SCOPES.join(' '),
+      client_id: env.googleClientId, redirect_uri: env.gmailRedirectUri, response_type: 'code', scope: scopes().join(' '),
       access_type: 'offline', prompt: 'consent', include_granted_scopes: 'true', state,
     });
     return `https://accounts.google.com/o/oauth2/v2/auth?${q}`;
   }
 
+  /** "Continue with Google": signs the person in (creating the account if new) and connects their Gmail in the same step. */
+  loginUrl(): string {
+    if (!env.gmailConfigured) throw new BadRequestException('Google sign-in is not set up on the server (GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)');
+    const state = jwt.sign({ purpose: 'google_login' }, env.authSecret, { expiresIn: '10m' });
+    const q = new URLSearchParams({ client_id: env.googleClientId, redirect_uri: env.gmailRedirectUri, response_type: 'code', scope: scopes().join(' '), access_type: 'offline', prompt: 'consent select_account', include_granted_scopes: 'true', state });
+    return `https://accounts.google.com/o/oauth2/v2/auth?${q}`;
+  }
+
+  /** Returns the web URL to send the browser to. The session token travels in the URL fragment, which servers and logs never see. */
+  private async handleLogin(code?: string, error?: string): Promise<string> {
+    const fail = (m: string) => `${env.webUrl}/login?error=${encodeURIComponent(m)}`;
+    if (error) return fail(error === 'access_denied' ? 'You declined access' : 'Google returned an error');
+    if (!code) return fail('Missing authorization code');
+    try {
+      const tok = await this.tokenRequest({ grant_type: 'authorization_code', code, redirect_uri: env.gmailRedirectUri });
+      const granted = String(tok.scope ?? '').split(' ');
+      if (!granted.includes(SEND_SCOPE)) return fail('Sending permission was not granted. Please tick every box on the Google screen');
+      if (!tok.refresh_token) return fail('Google did not return a refresh token. Remove JobPilot from your Google account permissions and try again');
+      const info = await this.json(await fetch('https://www.googleapis.com/oauth2/v3/userinfo', { headers: { authorization: `Bearer ${tok.access_token}` } }));
+      const email = String(info.email ?? '').toLowerCase();
+      if (!email || info.email_verified === false) return fail('Your Google email is not verified');
+      let u = await this.users.findOne({ email });
+      if (u?.status === 'suspended') return fail('This account is suspended. Contact support.');
+      const isNew = !u;
+      if (!u) u = await this.users.create({ email, name: String(info.name || email.split('@')[0]).slice(0, 120), passwordHash: await bcrypt.hash(randomBytes(32).toString('hex'), 10) }); // no usable password: this account signs in with Google
+      await this.users.updateOne({ _id: u._id }, { $set: { lastLoginAt: new Date() } });
+      const userId = String(u._id);
+      await this.accounts.findOneAndUpdate({ userId, provider: 'gmail' }, { $set: { email, refreshTokenEnc: encryptSecret(tok.refresh_token, env.tokenKey), scopes: granted, status: 'active' }, $unset: { lastError: '' } }, { upsert: true });
+      this.cache.delete(userId);
+      await this.audit.record({ userId, actor: 'user', action: isNew ? 'auth.google_signup' : 'auth.google_login', entityType: 'user', entityId: userId, result: 'success' });
+      return `${env.webUrl}/auth/google#token=${encodeURIComponent(signToken({ id: userId, role: u.role as any }))}`;
+    } catch {
+      return fail('Could not complete Google sign-in. Check the client ID, secret and redirect URI');
+    }
+  }
+
   /** Returns a web path to redirect the browser to. Never throws raw provider errors to the page. */
   async handleCallback(code?: string, state?: string, error?: string): Promise<string> {
     const back = (q: string) => `${env.webUrl}/settings/email?${q}`;
+    try { if ((jwt.verify(state ?? '', env.authSecret) as jwt.JwtPayload).purpose === 'google_login') return this.handleLogin(code, error); } catch { /* not a login state: fall through to the connect flow */ }
     if (error) return back(`error=${encodeURIComponent(error === 'access_denied' ? 'You declined access' : 'Google returned an error')}`);
     let userId: string;
     try {
@@ -70,7 +111,7 @@ export class GmailService {
       const tok = await this.tokenRequest({ grant_type: 'authorization_code', code, redirect_uri: env.gmailRedirectUri });
       if (!tok.refresh_token) return back('error=' + encodeURIComponent('Google did not return a refresh token. Remove JobPilot from your Google account permissions and connect again'));
       const granted = String(tok.scope ?? '').split(' ');
-      if (!granted.includes(SCOPES[2])) return back('error=' + encodeURIComponent('Sending permission was not granted. Please tick every box on the Google screen'));
+      if (!granted.includes(SEND_SCOPE)) return back('error=' + encodeURIComponent('Sending permission was not granted. Please tick every box on the Google screen'));
       const info = await this.json(await fetch('https://www.googleapis.com/oauth2/v3/userinfo', { headers: { authorization: `Bearer ${tok.access_token}` } }));
       if (!info.email) throw new Error('no email');
       await this.accounts.findOneAndUpdate(
@@ -107,7 +148,7 @@ export class GmailService {
     let access: string;
     try { access = await this.accessToken(userId, acct); }
     catch { throw new MailRejectedError('Gmail access expired. Reconnect your account in Email setup'); } // nothing was sent
-    const raw = b64url(buildMime({ from: acct.email, to: m.to, subject: m.subject, body: m.body, key: m.idempotencyKey, attachments: m.attachments }));
+    const raw = b64url(buildMime({ from: acct.email, to: m.to, subject: m.subject, body: m.body, html: m.html, key: m.idempotencyKey, attachments: m.attachments }));
     let res: Response;
     try {
       res = await fetch(`${GMAIL}/messages/send`, {

@@ -734,3 +734,22 @@ fieldset { border: 0; padding: 0; margin: 0; }
 .ctry-i:hover { background: color-mix(in srgb, var(--accent, #6366f1) 8%, transparent); }
 .ctry-none { padding: 10px; opacity: .6; font-size: 13px; }
 .ctry-ww { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; padding-top: 6px; border-top: 1px solid var(--border, #d9dde5); opacity: .9; }
+
+/* HR Outreach */
+.ou-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+.ou-n { display: inline-grid; place-items: center; width: 20px; height: 20px; margin-right: 8px; border-radius: 50%; background: var(--primary); color: #fff; font-size: 11px; font-weight: 700; }
+.ou-ta { width: 100%; font: 13px/1.5 var(--font, Inter), system-ui, sans-serif; resize: vertical; min-height: 110px; }
+.ou-strip { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; } .ou-strip .sp { flex: 1; }
+.ou-dot { width: 9px; height: 9px; border-radius: 50%; background: #CBD5E1; } .ou-dot.on { background: #10B981; box-shadow: 0 0 0 3px rgba(16,185,129,.2); }
+.ou-bar, .ou-prog { display: block; height: 6px; border-radius: 6px; background: var(--line-2, #EEF1F7); overflow: hidden; } .ou-bar { width: 110px; }
+.ou-bar i, .ou-prog i { display: block; height: 100%; border-radius: 6px; background: linear-gradient(90deg, #6366F1, #0EA5E9); transition: width .4s; }
+.ou-parse { display: grid; gap: 8px; padding: 10px; border-radius: 10px; background: var(--bg); border: 1px solid var(--line); }
+.ou-chips { display: flex; flex-wrap: wrap; gap: 5px; max-height: 116px; overflow: auto; } .ou-chips span { font-size: 11.5px; padding: 2px 8px; border-radius: 99px; background: #fff; border: 1px solid var(--line); }
+.ou-bad { margin: 0; padding-left: 18px; color: var(--bad); font-size: 12px; }
+.ou-prev { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #f3f4f6; } .ou-sub { padding: 8px 12px; background: #fff; border-bottom: 1px solid var(--line); font-size: 13px; }
+.ou-prev iframe { width: 100%; height: 520px; border: 0; background: #f3f4f6; display: block; }
+.ou-camp { padding: 12px; border: 1px solid var(--line); border-radius: 12px; display: grid; gap: 6px; }
+.ou-rows { display: grid; gap: 2px; max-height: 320px; overflow: auto; margin-top: 6px; }
+.ou-rows > div { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; font-size: 12.5px; } .ou-rows > div:nth-child(odd) { background: var(--bg); } .ou-rows > div > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .ou-rows em { color: var(--faint); font-style: normal; } .ou-rows small { color: var(--bad); }
+.gbtn { width: 100%; gap: 10px; }
+@media (max-width: 960px) { .ou-grid { grid-template-columns: 1fr; } .ou-bar { width: 70px; } }

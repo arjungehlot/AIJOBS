@@ -1,6 +1,7 @@
 import { Global, Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { Application, ApplicationSchema } from '../applications/application.schema';
+import { User, UserSchema } from '../users/user.schema';
 import { InboundMessage, InboundMessageSchema } from '../inbox/message.schema';
 import { GmailController } from './gmail.controller';
 import { GmailService } from './gmail.service';
@@ -15,6 +16,7 @@ import { RoutingMailProvider } from './routing-mail.provider';
     { name: MailAccount.name, schema: MailAccountSchema },
     { name: InboundMessage.name, schema: InboundMessageSchema },
     { name: Application.name, schema: ApplicationSchema },
+    { name: User.name, schema: UserSchema },
   ])],
   controllers: [GmailController],
   providers: [GmailService, MockMailProvider, RoutingMailProvider, { provide: MAIL_PROVIDER, useExisting: RoutingMailProvider }],

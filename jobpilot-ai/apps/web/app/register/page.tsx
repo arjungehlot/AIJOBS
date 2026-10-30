@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AuthShell } from '@/components/auth-shell';
+import { GoogleButton } from '@/components/google-button';
 import { Icon } from '@/components/ui';
 import { api, errText, token } from '@/lib/api';
 
@@ -24,6 +25,8 @@ export default function Register() {
   return (
     <AuthShell>
       <div><h1>Create your account</h1><p className="muted" style={{ marginTop: 4 }}>Free to start. No email is sent without your approval.</p></div>
+      <GoogleButton label="Sign up with Google" onError={setErr} />
+      <div className="divider">or create an account with email</div>
       <form onSubmit={submit}>
         <label className="f">Full name<input name="name" required autoComplete="name" placeholder="Aarav Kumar" /></label>
         <label className="f">Email<input name="email" type="email" required autoComplete="email" placeholder="you@example.com" /></label>

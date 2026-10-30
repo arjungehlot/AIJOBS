@@ -35,6 +35,8 @@ export const env = {
   get aiProvider() { return process.env.AI_PROVIDER === 'off' ? 'mock' : (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) ? 'gemini' : 'mock'; },
   get envFilesLoaded() { return FOUND_ENV_FILES; },
   get autoRunEnabled() { return (process.env.AGENT_AUTORUN ?? 'true') !== 'false'; },
+  /** Emails the HR-outreach feature may send per user per 24 hours (Gmail's own cap is far higher; this keeps outreach polite). */
+  get outreachDailyLimit() { return Math.max(1, Math.min(400, Number(process.env.OUTREACH_DAILY_LIMIT ?? 50) || 50)); },
   get googleClientId() { return process.env.GOOGLE_CLIENT_ID ?? ''; },
   get googleClientSecret() { return process.env.GOOGLE_CLIENT_SECRET ?? ''; },
   get gmailRedirectUri() { return process.env.GMAIL_REDIRECT_URI || `http://localhost:${process.env.PORT ?? 4000}/api/v1/integrations/gmail/callback`; },

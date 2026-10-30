@@ -11,7 +11,7 @@ const GROUPS = [
     { label: 'Applications', href: '/applications', icon: 'kanban' }, { label: 'Career Profiles', href: '/profiles', icon: 'user' } ] },
   { h: 'Outreach', items: [
     { label: 'Mailbox', href: '/mail', icon: 'mail' }, { label: 'Reply Inbox', href: '/inbox', icon: 'scan' }, { label: 'HR Contacts', href: '/contacts', icon: 'users' },
-    { label: 'Follow-ups', href: '/followups', icon: 'bell' }, { label: 'Email Setup', href: '/settings/email', icon: 'send' }, { label: 'Resume Studio', href: '/resumes', icon: 'file' } ] },
+    { label: 'HR Outreach', href: '/outreach', icon: 'send' }, { label: 'Follow-ups', href: '/followups', icon: 'bell' }, { label: 'Email Setup', href: '/settings/email', icon: 'send' }, { label: 'Resume Studio', href: '/resumes', icon: 'file' } ] },
   { h: 'Automation & insight', items: [
     { label: 'AI Agent', href: '/agent', icon: 'bot' }, { label: 'Analytics', href: '/analytics', icon: 'chart' }, { label: 'Interview Prep', href: '/prep', icon: 'book' }, { label: 'AI Settings', href: '/settings/ai', icon: 'spark' } ] },
 ];
@@ -22,7 +22,7 @@ const ADMIN = { h: 'Super admin', items: [
 const TONE: Record<string, [string, string]> = {
   '/admin': ['#F43F5E', '#BE123C'], '/admin/users': ['#8B5CF6', '#5B21B6'], '/admin/audit': ['#84CC16', '#4D9A0F'], '/admin/system': ['#14B8A6', '#0F766E'],
   '/dashboard': ['#6366F1', '#4338CA'], '/discover': ['#14B8A6', '#0F766E'], '/settings/ai': ['#F472B6', '#DB2777'], '/analyzer': ['#0EA5E9', '#0369A1'], '/applications': ['#FBBF24', '#EA7A0C'], '/profiles': ['#EC4899', '#9D174D'],
-  '/mail': ['#3B82F6', '#1D4ED8'], '/inbox': ['#8B5CF6', '#6D28D9'], '/contacts': ['#10B981', '#047857'], '/followups': ['#F97316', '#C2410C'],
+  '/mail': ['#3B82F6', '#1D4ED8'], '/inbox': ['#8B5CF6', '#6D28D9'], '/contacts': ['#10B981', '#047857'], '/followups': ['#F97316', '#C2410C'], '/outreach': ['#EC4899', '#BE185D'],
   '/settings/email': ['#06B6D4', '#0E7490'], '/resumes': ['#A855F7', '#7E22CE'], '/agent': ['#D946EF', '#A21CAF'], '/analytics': ['#22C55E', '#15803D'], '/prep': ['#FBBF24', '#D97706'],
 };
 const ALL = [...GROUPS, ADMIN].flatMap((g) => g.items);

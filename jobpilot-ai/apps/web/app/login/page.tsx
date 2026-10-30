@@ -1,14 +1,17 @@
 'use client';
 import Link from 'next/link';
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AuthShell } from '@/components/auth-shell';
+import { GoogleButton } from '@/components/google-button';
 import { Icon } from '@/components/ui';
 import { api, errText, token } from '@/lib/api';
 
 export default function Login() {
   const router = useRouter();
   const [err, setErr] = useState(''); const [busy, setBusy] = useState(false); const [show, setShow] = useState(false);
+
+  useEffect(() => { const q = new URLSearchParams(window.location.search).get('error'); if (q) { setErr(q); window.history.replaceState({}, '', '/login'); } }, []);
 
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault(); setErr(''); setBusy(true);
@@ -20,6 +23,8 @@ export default function Login() {
   return (
     <AuthShell>
       <div><h1>Welcome back</h1><p className="muted" style={{ marginTop: 4 }}>Log in to continue your job search.</p></div>
+      <GoogleButton onError={setErr} />
+      <div className="divider">or use your email</div>
       <form onSubmit={submit}>
         <label className="f">Email<input name="email" type="email" required autoComplete="email" placeholder="you@example.com" /></label>
         <label className="f">Password
@@ -31,7 +36,7 @@ export default function Login() {
       </form>
       <div className="divider">New to JobPilot?</div>
       <Link href="/register" className="btn lg" style={{ justifyContent: 'center', height: 43 }}>Create a free account</Link>
-      <div className="faint" style={{ display: 'flex', gap: 6, justifyContent: 'center', alignItems: 'center' }}><Icon name="lock" size={12} />Passwords are hashed. You connect your own Gmail later, inside the app.</div>
+      <div className="faint" style={{ display: 'flex', gap: 6, justifyContent: 'center', alignItems: 'center' }}><Icon name="lock" size={12} />Emails are sent from your own Gmail. Nothing goes out without your say-so.</div>
     </AuthShell>
   );
 }

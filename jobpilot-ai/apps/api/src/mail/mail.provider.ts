@@ -2,6 +2,8 @@ export interface OutgoingMail {
   userId: string;
   idempotencyKey: string;
   from: string; to: string; subject: string; body: string;
+  /** Optional HTML version; the plain `body` is still sent as the text part. */
+  html?: string;
   attachments?: { filename: string; mime: string; data: Buffer }[];
 }
 export interface SentMail { messageId: string; threadId?: string }
