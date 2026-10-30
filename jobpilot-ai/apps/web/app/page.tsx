@@ -162,6 +162,7 @@ export default function Landing() {
                 <div><Link href="/" className="nx-logo"><i><Icon name="send" size={15} /></i>JobPilot AI</Link><p>Your job search, with you at the controls.</p></div>
                 <nav aria-label="Product"><b>Product</b><a href="#match">Job matching</a><a href="#resume">Resume analysis</a><a href="#journey">How it works</a><a href="#demo">Live demo</a></nav>
                 <nav aria-label="Account"><b>Account</b><Link href="/login">Log in</Link><Link href="/register">Create account</Link></nav>
+                <nav aria-label="Legal"><b>Legal</b><Link href="/privacy">Privacy Policy</Link><Link href="/terms">Terms of Service</Link></nav>
               </div>
               <div className="nx-wrap nx-legal">© {new Date().getFullYear()} JobPilot AI. Company names, testimonials and dashboard figures on this page are samples.</div>
             </footer>
