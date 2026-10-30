@@ -78,7 +78,7 @@ export class OutreachService {
     const { u, resume, signature, names } = await this.context(userId, dto.resumeId, true);
     const r = { email: 'hr@example.com', name: dto.name || 'Priya Sharma', company: dto.company || 'Acme Technologies' };
     const body = fillTemplate(dto.body, r);
-    return { to: r.email, subject: fillTemplate(dto.subject, r), html: renderOutreachHtml({ body, signature, senderName: u.name, attachmentNames: names, preheader: body.slice(0, 90) }), text: renderOutreachText(body, signature, u.name), resumeName: resume?.fileName ?? null };
+    return { to: r.email, subject: fillTemplate(dto.subject, r), html: renderOutreachHtml({ body, signature, senderName: u.name, attachmentNames: names, preheader: body.slice(0, 90) }), text: renderOutreachText(body, signature, u.name), resumeName: resume?.filename ?? null };
   }
 
   private async context(userId: string, resumeId: string | undefined, soft = false) {
