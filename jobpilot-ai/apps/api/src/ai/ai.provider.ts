@@ -19,6 +19,10 @@ export interface AiProvider {
   rewriteText?(text: string, instruction: string, opts?: AiOpts): Promise<string | null>;
   /** Rewrites a resume's text (layout, wording, grammar). Never adds facts. Returns null when no real AI is configured. */
   rewriteResume?(text: string, instruction: string, opts?: AiOpts): Promise<string | null>;
+  /** Suggests job titles the candidate could realistically be hired for, from their titles and skills. Null when no real AI is configured. */
+  suggestRoles?(ctx: { titles: string[]; skills: string[]; searching: string[] }, opts?: AiOpts): Promise<string[] | null>;
+  /** Rates how well each posting fits the candidate (0-100) with a one-line reason. Null when no real AI is configured. */
+  rankJobs?(ctx: { titles: string[]; skills: string[]; yearsExperience?: number }, jobs: { id: string; title: string; company: string; location?: string; text: string }[], opts?: AiOpts): Promise<{ id: string; fit: number; reason: string }[] | null>;
   /** Reads email addresses (and a visible name/company beside each) out of a screenshot or photo. Returns null when no real AI is configured. */
   extractEmails?(image: { mime: 'image/png' | 'image/jpeg' | 'image/webp'; base64: string }, opts?: AiOpts): Promise<{ email: string; name?: string; company?: string }[] | null>;
   /** Reads a resume (PDF or text) into plain text plus a few facts. Never adds anything that is not in the document. */

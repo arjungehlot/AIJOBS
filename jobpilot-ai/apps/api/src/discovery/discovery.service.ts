@@ -18,7 +18,7 @@ import { Job, JobMatch } from '../jobs/job.schema';
 
 export const DiscoverDto = z.object({
   careerProfileId: z.string().regex(/^[a-f0-9]{24}$/i),
-  query: z.string().trim().max(100).optional(),
+  query: z.string().trim().max(300).optional(),
   sources: z.array(z.enum(SOURCES)).min(1).max(SOURCES.length).optional(),
   limit: z.number().int().min(5).max(40).default(20),
   enrich: z.boolean().default(true),
@@ -28,6 +28,24 @@ export const DiscoverDto = z.object({
   countries: z.array(z.string().length(2).transform((c) => c.toUpperCase())).max(40).optional(),
   /** Keep postings that name no country ("Remote", "Worldwide") when a country filter is on. */
   includeWorldwide: z.boolean().default(true),
+});
+/** "Frontend developer, full stack developer / software developer" becomes three separate searches (max 5). */
+export function splitRoles(q?: string | null): string[] {
+  const out: string[] = [];
+  for (const part of String(q ?? '').split(/[,;|\n]+|\s\/\s|\s+or\s+/i)) { const t = part.trim().replace(/\s+/g, ' ').slice(0, 80); if (t && !out.some((x) => x.toLowerCase() === t.toLowerCase())) out.push(t); }
+  return out.slice(0, 5);
+}
+const INDIA_CITIES = ['Bengaluru', 'Bangalore', 'Mumbai', 'Delhi', 'New Delhi', 'Gurugram', 'Gurgaon', 'Noida', 'Pune', 'Hyderabad', 'Chennai', 'Kolkata', 'Ahmedabad', 'Jaipur', 'Indore', 'Chandigarh', 'Kochi', 'Coimbatore', 'Thiruvananthapuram', 'Nagpur', 'Surat', 'Lucknow', 'Bhopal', 'Vadodara'];
+/** City names the posting text mentions (an indication, not a guarantee: the job feed itself only gives countries). */
+export function citiesIn(text: string): string[] {
+  const out: string[] = [];
+  for (const c of INDIA_CITIES) { if (new RegExp(`(?<![A-Za-z])${c}(?![A-Za-z])`, 'i').test(text)) { const canon = c === 'Bangalore' ? 'Bengaluru' : c === 'Gurgaon' ? 'Gurugram' : c; if (!out.includes(canon)) out.push(canon); } }
+  return out.slice(0, 4);
+}
+export const ContactDto = z.object({
+  jobId: z.string().regex(/^[a-f0-9]{24}$/i),
+  email: z.string().trim().toLowerCase().email().max(200).optional().or(z.literal('')),
+  phone: z.string().trim().max(30).regex(/^[+\d][\d\s().-]{6,28}$/, 'Enter a valid phone number').optional().or(z.literal('')),
 });
 export type DiscoverInput = z.infer<typeof DiscoverDto>;
 
@@ -65,6 +83,16 @@ export class DiscoveryService {
   /** Countries offered in the filter. */
   countries() { return COUNTRIES.map(({ code, name }) => ({ code, name })); }
 
+  /** Saves an HR email / phone the user found (for example on LinkedIn) onto the job, so it can be emailed and messaged from here. */
+  async setContact(userId: string, dto: z.infer<typeof ContactDto>) {
+    const set: Record<string, string> = {}; const unset: Record<string, ''> = {};
+    if (dto.email !== undefined) (dto.email ? (set.applicationEmail = dto.email) : (unset.applicationEmail = ''));
+    if (dto.phone !== undefined) (dto.phone ? (set.contactPhone = dto.phone) : (unset.contactPhone = ''));
+    const j: any = await this.jobs.findOneAndUpdate({ _id: dto.jobId, userId }, { ...(Object.keys(set).length ? { $set: set } : {}), ...(Object.keys(unset).length ? { $unset: unset } : {}) }, { new: true }).lean();
+    if (!j) throw new NotFoundException('Job not found');
+    return { applicationEmail: j.applicationEmail ?? null, contactPhone: j.contactPhone ?? null, applyMethod: j.applicationEmail ? 'email' : 'link' };
+  }
+
   sources() { return available().map((id) => ({ id, ...CREDITS[id] })); }
 
   /** Pre-filled LinkedIn / Naukri / Indeed searches for the user to open. */
@@ -100,9 +128,21 @@ export class DiscoveryService {
     if (!dto.query && !profile.targetTitles.length && !profile.skills.length) throw new BadRequestException('Add target job titles or skills to your career profile (or type a search) first.');
     const ids = (dto.sources ?? [...SOURCES]).filter((i) => available().includes(i));
     if (!ids.length) throw new BadRequestException('No job sources are available.');
-    const q = dto.query ?? profile.targetTitles[0] ?? profile.skills[0] ?? '';
+    const roles = splitRoles(dto.query).length ? splitRoles(dto.query) : (profile.targetTitles.length ? profile.targetTitles.slice(0, 4) : profile.skills.slice(0, 1));
+    // Gemini widens the search: related titles this candidate could be hired for, based on their own skills.
+    let aiRoles: string[] = []; let aiRoleNote: string | null = null;
+    const useAi = dto.enrich && this.ai.name !== 'mock';
+    if (useAi && this.ai.suggestRoles) {
+      report(4, 'AI is suggesting related job titles from your skills');
+      try {
+        const sug = await this.ai.suggestRoles({ titles: profile.targetTitles.slice(0, 8), skills: profile.skills.slice(0, 30), searching: roles }, { model: await this.aiSettings.modelFor(userId) });
+        aiRoles = (sug ?? []).filter((r) => !roles.some((x) => x.toLowerCase() === r.toLowerCase())).slice(0, Math.max(0, 6 - roles.length));
+        roles.push(...aiRoles);
+      } catch (e: any) { aiRoleNote = String(e?.message ?? 'unavailable').slice(0, 120); }
+    }
+    const q = roles.join(', ');
 
-    report(6, `Searching ${ids.length} job boards for “${q}”`);
+    report(6, `Searching ${ids.length} job boards for ${roles.length} role${roles.length === 1 ? '' : 's'}: ${q}`);
     const wanted = dto.countries ?? [];
     let fetchedN = 0;
     const fetched = await Promise.all(ids.map(async (id) => {
@@ -111,14 +151,25 @@ export class DiscoveryService {
         const keys = { adzunaId: env.adzunaId, adzunaKey: env.adzunaKey };
         // Adzuna is one country per request: ask for every chosen country it covers (India when none chosen).
         const adz = id === 'adzuna' ? (wanted.map((c) => COUNTRIES.find((x) => x.code === c)?.adzuna).filter(Boolean) as string[]) : [];
-        const calls = id === 'adzuna' ? (adz.length ? adz : wanted.length ? [] : ['in']).map((country) => ({ url: sourceUrl(id, q, { ...keys, country }), country })) : [{ url: sourceUrl(id, q, keys), country: 'in' }];
+        // Sources that take a text query are asked once per role. The others return one general feed.
+        const perRole = id === 'adzuna' || id === 'remotive' || id === 'jobicy' || id === 'himalayas';
+        const qs = perRole ? roles : [''];
+        const countries = id === 'adzuna' ? (adz.length ? adz : wanted.length ? [] : ['in']) : id === 'himalayas' ? (wanted.length ? wanted.slice(0, 3) : ['']) : ['in'];
+        const pages = id === 'himalayas' ? [1, 2] : [1]; // Himalayas returns 20 per page: take the two newest pages per search
+        const calls = countries.flatMap((country) => qs.flatMap((role) => pages.map((page) => ({ url: sourceUrl(id, role, { ...keys, country, page }), plain: sourceUrl(id, '', { ...keys, country, page }), country })))).slice(0, 24);
         if (!calls.length) return done({ id, ok: true, jobs: [] }); // chosen countries are not covered by this source
-        const parts = await Promise.all(calls.map(async (c) => {
-          const res = await fetch(c.url, { headers: { 'user-agent': UA, accept: 'application/json' }, signal: AbortSignal.timeout(20_000) });
+        const results = await Promise.allSettled(calls.map(async (c) => {
+          const hdrs: Record<string, string> = { 'user-agent': UA, accept: 'application/json' };
+          const authed = id === 'himalayas' && !!env.himalayasKey; if (authed) hdrs.authorization = `Bearer ${env.himalayasKey}`;
+          let res = await fetch(c.url, { headers: hdrs, signal: AbortSignal.timeout(20_000) });
+          if (res.status === 401 && authed) { delete hdrs.authorization; res = await fetch(c.url, { headers: hdrs, signal: AbortSignal.timeout(20_000) }); } // the key was rejected: the public feed still works without it
+          if ((res.status === 400 || res.status === 404) && c.plain !== c.url && id !== 'adzuna') res = await fetch(c.plain, { headers: { 'user-agent': UA, accept: 'application/json' }, signal: AbortSignal.timeout(20_000) }); // this board rejects the text query: take its general feed and filter here
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const json = await res.json();
           return id === 'adzuna' ? fromAdzuna(json, c.country) : PARSERS[id](json);
         }));
+        const parts = results.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []));
+        if (!parts.length) throw (results.find((r) => r.status === 'rejected') as PromiseRejectedResult).reason;
         return done({ id, ok: true, jobs: parts.flat() });
       } catch (e: any) { return done({ id, ok: false, error: /HTTP \d+/.test(String(e?.message)) ? String(e.message) : 'could not connect', jobs: [] }); }
     }));
@@ -129,7 +180,7 @@ export class DiscoveryService {
     const seen = new Set<string>();
     const maxAge = dto.maxAgeDays ?? 5;
     let staleSkipped = 0; let countrySkipped = 0; const nowD = new Date();
-    const rel = { titles: dto.query ? [] : profile.targetTitles, skills: profile.skills, query: dto.query };
+    const relFor = (j: RawJob) => Math.max(...roles.map((role) => relevance(j, { titles: [], skills: profile.skills, query: role })), 0);
     const candidates = fetched.flatMap((f) => f.jobs).filter((j) => {
       const k = `${j.source}:${j.providerJobId}`; if (seen.has(k)) return false; seen.add(k);
       if (!isFresh(j.postedAt, maxAge, nowD)) { staleSkipped++; return false; }
@@ -137,32 +188,44 @@ export class DiscoveryService {
       if (excl.includes(j.company.toLowerCase())) return false;
       const hay = `${j.title} ${j.description}`.toLowerCase();
       return !bad.some((w) => hay.includes(w));
-    }).map((j) => ({ j, r: relevance(j, rel) })).filter((x) => x.r >= 1);
+    }).map((j) => ({ j, r: relFor(j) })).filter((x) => x.r >= 1);
 
     report(36, `Filtering: ${candidates.length} of ${fetched.reduce((n, f) => n + f.jobs.length, 0)} match your skills (${staleSkipped} older than ${maxAge} days skipped)`);
-    const scored = candidates.map(({ j, r }) => {
+    const scoredAll = candidates.map(({ j, r }) => {
       const skills = extractSkills(`${j.title} ${j.tags.join(' ')} ${j.description}`);
       const facts = { company: j.company, title: j.title, description: j.description, location: j.location, workMode: j.workMode, employmentType: j.employmentType, requiredSkills: skills, preferredSkills: [] as string[], experienceMin: yearsIn(j.description), salaryMax: j.salaryMax, currency: j.currency };
-      return { j, r, facts, report: scoreMatch(profile as any, facts) };
-    }).sort((a, b) => b.report.score - a.report.score || b.r - a.r).slice(0, dto.limit);
+      return { j, r, facts, report: scoreMatch(profile as any, facts), aiFit: undefined as number | undefined, aiReason: undefined as string | undefined };
+    }).sort((a, b) => b.report.score - a.report.score || b.r - a.r);
+    // Gemini reads the best 30 keyword matches in ONE call and rates the real fit, so ordering follows skills and role, not just keywords.
+    let rankNote: string | null = null; let aiRanked = 0;
+    if (useAi && this.ai.rankJobs && scoredAll.length) {
+      report(40, `AI is rating the fit of the top ${Math.min(30, scoredAll.length)} openings`);
+      try {
+        const pool = scoredAll.slice(0, 30);
+        const out = await this.ai.rankJobs({ titles: profile.targetTitles.slice(0, 8), skills: profile.skills.slice(0, 30), yearsExperience: (profile as any).yearsExperience }, pool.map((x, i) => ({ id: String(i), title: x.j.title, company: x.j.company, location: x.j.location, text: x.j.description ?? '' })), { model: await this.aiSettings.modelFor(userId) });
+        for (const o of out ?? []) { const row = pool[Number(o.id)]; if (row) { row.aiFit = o.fit; row.aiReason = o.reason; aiRanked++; } }
+        scoredAll.sort((a, b) => (b.aiFit !== undefined ? b.aiFit * 0.6 + b.report.score * 0.4 : b.report.score * 0.7) - (a.aiFit !== undefined ? a.aiFit * 0.6 + a.report.score * 0.4 : a.report.score * 0.7));
+      } catch (e: any) { rankNote = String(e?.message ?? 'unavailable').slice(0, 120); }
+    }
+    const scored = scoredAll.slice(0, dto.limit);
 
     report(44, `Scored against your profile. Best keyword match: ${scored[0]?.report.score ?? 0}/100`);
     const now = new Date();
-    const stored: { id: any; isNew: boolean; row: (typeof scored)[number] }[] = [];
+    const stored: { id: any; isNew: boolean; row: (typeof scored)[number]; phone?: string }[] = [];
     for (const row of scored) {
       const { j, facts } = row;
       const key = dedupeKey({ source: j.source, providerJobId: j.providerJobId, applicationUrl: j.applicationUrl, company: j.company, title: j.title, location: j.location });
       const res: any = await this.jobs.findOneAndUpdate({ userId, dedupeKey: key }, {
         $set: { lastSeenAt: now },
         $setOnInsert: { source: j.source, providerJobId: j.providerJobId, company: j.company, title: j.title, description: j.description, location: j.location, workMode: j.workMode, employmentType: j.employmentType,
-          requiredSkills: facts.requiredSkills, preferredSkills: [], experienceMin: facts.experienceMin, salaryMax: j.salaryMax, salaryMin: j.salaryMin, currency: j.currency, applicationUrl: j.applicationUrl, applicationEmail: j.applicationEmail, firstSeenAt: now },
+          requiredSkills: facts.requiredSkills, preferredSkills: [], experienceMin: facts.experienceMin, salaryMax: j.salaryMax, salaryMin: j.salaryMin, currency: j.currency, applicationUrl: j.applicationUrl, applicationEmail: j.applicationEmail, contactPhone: findPhone(j.description ?? ''), firstSeenAt: now },
       }, { upsert: true, new: true, includeResultMetadata: true });
       const isNew = !res.lastErrorObject?.updatedExisting;
       if (!isNew) { // Already known (maybe AI-reviewed before): score from what is stored, not the fresh baseline.
         const d = res.value;
         const f2 = { ...facts, requiredSkills: d.requiredSkills ?? facts.requiredSkills, preferredSkills: d.preferredSkills ?? [], experienceMin: d.experienceMin ?? facts.experienceMin, experienceMax: d.experienceMax, workMode: d.workMode ?? facts.workMode };
-        stored.push({ id: d._id, isNew, row: { ...row, facts: f2, report: scoreMatch(profile as any, f2), j: { ...j, applicationEmail: d.applicationEmail ?? j.applicationEmail } } });
-      } else stored.push({ id: res.value._id, isNew, row });
+        stored.push({ id: d._id, isNew, row: { ...row, facts: f2, report: scoreMatch(profile as any, f2), j: { ...j, applicationEmail: d.applicationEmail ?? j.applicationEmail } }, phone: d.contactPhone ?? findPhone(j.description ?? '') } as any);
+      } else stored.push({ id: res.value._id, isNew, row, phone: findPhone(j.description ?? '') } as any);
     }
 
     report(52, `Saved ${stored.length} openings (${stored.filter((x) => x.isNew).length} new)`);
@@ -179,7 +242,7 @@ export class DiscoveryService {
           try {
             const x = await this.ai.extractJob({ kind: 'text', text: `Title: ${j.title}\nCompany: ${j.company}\nLocation: ${j.location ?? ''}\n\n${j.description}`.slice(0, 14000) }, { model });
             const facts = { ...s.row.facts, requiredSkills: x.requiredSkills.length ? x.requiredSkills : s.row.facts.requiredSkills, preferredSkills: x.preferredSkills, experienceMin: x.experienceMin ?? s.row.facts.experienceMin, experienceMax: x.experienceMax, workMode: x.workMode ?? s.row.facts.workMode, salaryMax: x.salaryMax ?? s.row.facts.salaryMax };
-            const email = x.applicationEmail ?? findApplyEmail(j.description);
+            const email = j.applicationEmail ?? x.applicationEmail ?? findApplyEmail(j.description); // an email already saved (or added by the user) is kept
             await this.jobs.updateOne({ _id: s.id }, { $set: { requiredSkills: facts.requiredSkills, preferredSkills: facts.preferredSkills, experienceMin: facts.experienceMin, experienceMax: facts.experienceMax, ...(facts.workMode && { workMode: facts.workMode }), ...(email && { applicationEmail: email }) } });
             s.row = { ...s.row, facts, report: scoreMatch(profile as any, facts), j: { ...j, applicationEmail: email ?? j.applicationEmail } };
             enriched.add(String(s.id));
@@ -196,16 +259,22 @@ export class DiscoveryService {
     await this.matches.insertMany(stored.map((s) => ({ userId, jobId: s.id, careerProfileId: profile._id, score: s.row.report.score, recommendation: s.row.report.recommendation, report: s.row.report as any })), { ordered: false }).catch(() => undefined);
     await this.audit.record({ userId, actor, action: 'discovery.search', entityType: 'career_profile', entityId: String(profile._id), result: 'success', meta: { query: q, found: candidates.length, stored: stored.length, newJobs: stored.filter((s) => s.isNew).length } });
 
+    const hints: string[] = [];
+    if (wanted.includes('IN') || !wanted.length) {
+      if (!env.adzunaConfigured) hints.push('Most free job boards list very few jobs in India. Add the free Adzuna keys (ADZUNA_APP_ID and ADZUNA_APP_KEY) on the server to search Indian openings.');
+      if (countrySkipped > candidates.length * 2) hints.push(`${countrySkipped} openings were outside your chosen countries. Remote-worldwide roles are kept; widen "Posted within" to 14 days for more.`);
+    }
+    if (staleSkipped > candidates.length) hints.push(`${staleSkipped} openings were older than ${maxAge} days. Try "Posted within" 14 or 30 days.`);
     const appRows = await this.apps.find({ userId, jobId: { $in: stored.map((x) => x.id) } }).select('jobId status sentAt lastError').lean();
     const appBy = new Map(appRows.map((a: any) => [String(a.jobId), a]));
     return {
-      query: q, staleSkipped, countrySkipped, countries: wanted, maxAgeDays: maxAge, scanned: fetched.reduce((n, f) => n + f.jobs.length, 0), relevant: candidates.length, sources: sourceReport, aiNote,
+      query: q, roles, aiRoles, aiRoleNote, rankNote, aiRanked, hints, staleSkipped, countrySkipped, countries: wanted, maxAgeDays: maxAge, scanned: fetched.reduce((n, f) => n + f.jobs.length, 0), relevant: candidates.length, sources: sourceReport, aiNote,
       items: stored.map((s) => ({
         jobId: String(s.id), isNew: s.isNew, source: s.row.j.source, company: s.row.j.company, title: s.row.j.title, location: s.row.j.location ?? null, workMode: s.row.j.workMode ?? null,
         score: s.row.report.score, recommendation: s.row.report.recommendation, matched: s.row.report.matchedRequired, missing: s.row.report.missingRequired,
-        contactPhone: findPhone(s.row.j.description ?? '') ?? null, salary: s.row.j.salaryMax ? { min: s.row.j.salaryMin ?? null, max: s.row.j.salaryMax, currency: s.row.j.currency ?? null } : null, employmentType: s.row.j.employmentType ?? null,
+        contactPhone: s.phone ?? null, cities: citiesIn(`${s.row.j.title} ${s.row.j.location ?? ''} ${(s.row.j.description ?? '').slice(0, 2500)}`), countriesList: (s.row.j.location ?? '').split(',').map((x) => x.trim()).filter(Boolean).slice(0, 12), logoLetter: (s.row.j.company ?? '?').trim().charAt(0).toUpperCase(), salary: s.row.j.salaryMax ? { min: s.row.j.salaryMin ?? null, max: s.row.j.salaryMax, currency: s.row.j.currency ?? null } : null, employmentType: s.row.j.employmentType ?? null,
         applyMethod: s.row.j.applicationEmail ? 'email' : 'link', applicationEmail: s.row.j.applicationEmail ?? null, applicationUrl: s.row.j.applicationUrl ?? null,
-        postedAt: s.row.j.postedAt ?? null, aiReviewed: enriched.has(String(s.id)),
+        aiFit: (s.row as any).aiFit ?? null, aiReason: (s.row as any).aiReason ?? null, postedAt: s.row.j.postedAt ?? null, aiReviewed: enriched.has(String(s.id)),
         application: (() => { const a: any = appBy.get(String(s.id)); return a ? { id: String(a._id), status: a.status, sentAt: a.sentAt ?? null, error: a.lastError ?? null } : null; })(),
       })),
     };

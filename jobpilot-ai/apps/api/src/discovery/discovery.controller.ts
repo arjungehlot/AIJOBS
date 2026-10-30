@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { AuthUser, CurrentUser } from '../common/auth';
 import { ZodPipe } from '../common/zod.pipe';
-import { DiscoverDto, DiscoveryService } from './discovery.service';
+import { ContactDto, DiscoverDto, DiscoveryService } from './discovery.service';
 
 @Controller('discovery')
 export class DiscoveryController {
@@ -11,5 +11,6 @@ export class DiscoveryController {
   @Get('links') links(@Query('q') q = '', @Query('days') days = '5', @Query('loc') loc = '') { return this.svc.externalLinks(q, Number(days) || 5, loc); }
   @Post('start') start(@CurrentUser() u: AuthUser, @Body(new ZodPipe(DiscoverDto)) dto: any) { return this.svc.start(u.id, dto); }
   @Get('status/:id') status(@CurrentUser() u: AuthUser, @Param('id') id: string, @Query('since') since?: string) { return this.svc.status(u.id, id, Math.max(0, Number(since) || 0)); }
+  @Post('contact') contact(@CurrentUser() u: AuthUser, @Body(new ZodPipe(ContactDto)) dto: any) { return this.svc.setContact(u.id, dto); }
   @Post('search') search(@CurrentUser() u: AuthUser, @Body(new ZodPipe(DiscoverDto)) dto: any) { return this.svc.search(u.id, dto); }
 }

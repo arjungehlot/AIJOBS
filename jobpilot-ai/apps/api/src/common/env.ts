@@ -42,6 +42,8 @@ export const env = {
   get googleClientSecret() { return process.env.GOOGLE_CLIENT_SECRET ?? ''; },
   get gmailRedirectUri() { return process.env.GMAIL_REDIRECT_URI || `http://localhost:${process.env.PORT ?? 4000}/api/v1/integrations/gmail/callback`; },
   /** Optional free keys from developer.adzuna.com. Adds India-wide listings. */
+  /** Himalayas API key (optional, raises the rate limit). Accepts HIMALAYAS_API_KEY, or the name "Himalayas". */
+  get himalayasKey() { return (process.env.HIMALAYAS_API_KEY ?? process.env.Himalayas ?? process.env.HIMALAYAS ?? '').trim(); },
   get adzunaId() { return (process.env.ADZUNA_APP_ID ?? '').trim(); },
   get adzunaKey() { return (process.env.ADZUNA_APP_KEY ?? '').trim(); },
   get adzunaConfigured() { return !!(process.env.ADZUNA_APP_ID && process.env.ADZUNA_APP_KEY); },

@@ -163,6 +163,35 @@ export default function Discover() {
       setOk('Status refreshed.');
     } catch (x) { setErr(errText(x)); }
   }
+  const [add, setAdd] = useState<{ id: string; email: string; phone: string } | null>(null); const [addBusy, setAddBusy] = useState(false);
+  async function saveContact(it: any) {
+    if (!add) return; setAddBusy(true); setErr('');
+    try {
+      const r = await api('/discovery/contact', { body: { jobId: it.jobId, email: add.email.trim(), phone: add.phone.trim() } });
+      setRes((cur: any) => cur && ({ ...cur, items: cur.items.map((x: any) => x.jobId === it.jobId ? { ...x, applicationEmail: r.applicationEmail, contactPhone: r.contactPhone, applyMethod: r.applyMethod } : x) }));
+      setAdd(null); setOk(r.applicationEmail ? 'Contact saved. You can now send your resume from here.' : 'Contact saved.');
+    } catch (x) { setErr(errText(x)); } finally { setAddBusy(false); }
+  }
+  const [meName, setMeName] = useState('');
+  useEffect(() => { api('/auth/me').then((m: any) => setMeName(m?.name ?? '')).catch(() => undefined); }, []);
+  /** Opens WhatsApp with the message typed in. WhatsApp itself needs one tap on Send; no web app can send it silently. */
+  const waDigits = (ph: string) => { const d = ph.replace(/\D/g, ''); return d.length === 10 && /^[6-9]/.test(d) ? `91${d}` : d.length === 11 && d.startsWith('0') ? `91${d.slice(1)}` : d; };
+  const waLink = (it: any, emailed = false) => {
+    const msg = `Hello, I am ${meName || 'a candidate'}. I am interested in the ${it.title} role at ${it.company}.${emailed || it.applicationEmail ? ` I have ${emailed ? 'sent' : 'also written'} an email${it.applicationEmail ? ` to ${it.applicationEmail}` : ''} with my resume attached.` : ''} I would be glad to discuss it. Thank you.`;
+    return `https://wa.me/${waDigits(it.contactPhone)}?text=${encodeURIComponent(msg)}`;
+  };
+  async function sendBoth(it: any) {
+    if (!window.confirm(`Send your application email to ${it.applicationEmail} (resume attached) and open WhatsApp for ${it.contactPhone}?\n\nIn WhatsApp you press Send yourself.`)) return;
+    const w = window.open('', '_blank'); // opened now, inside the click, so the browser does not block it
+    setErr(''); setOk('');
+    setSt((c) => ({ ...c, [it.jobId]: { state: 'sending', label: 'Writing email…' } }));
+    try {
+      const r = await api('/applications/quick-send', { body: { jobId: it.jobId, careerProfileId: f.profileId, resumeId: resume?._id } });
+      setSt((c) => ({ ...c, [it.jobId]: { id: r.applicationId, status: r.status, error: r.ok ? null : r.message, sentAt: r.ok ? new Date().toISOString() : null, to: r.to } }));
+      if (r.ok) { setOk(`Email sent to ${r.to ?? it.applicationEmail}. WhatsApp is open: press Send there.`); if (w) w.location.href = waLink(it, true); }
+      else { w?.close(); setErr(r.message ?? 'The email was not sent, so WhatsApp was not opened.'); }
+    } catch (x) { w?.close(); setSt((c) => ({ ...c, [it.jobId]: { status: 'send_failed', error: errText(x) } })); }
+  }
   async function sendSelected() {
     if (!picked.length) return;
     if (!window.confirm(`Send ${picked.length} application${picked.length === 1 ? '' : 's'} from your Gmail${resume ? ` with ${resume.fileName} attached` : ''}?\n\nA personalised email is written for each company.`)) return;
@@ -200,7 +229,7 @@ export default function Discover() {
         <div className="jf-row">
           <label className="az-f" style={{ flex: '1 1 190px' }}>Career profile<select value={f.profileId} onChange={(e) => setF({ ...f, profileId: e.target.value })}>{profiles.length === 0 && <option value="">Create a profile first</option>}{profiles.map((p) => <option key={p._id} value={p._id}>{p.name}</option>)}</select></label>
           <label className="az-f" style={{ flex: '3 1 260px' }}>Search
-            <span className="jf-q"><Icon name="search" size={14} /><input placeholder="Optional · e.g. Node.js backend developer (defaults to your target titles)" value={f.query} onChange={(e) => setF({ ...f, query: e.target.value })} /></span></label>
+            <span className="jf-q"><Icon name="search" size={14} /><input placeholder="Roles, separated by commas · e.g. Frontend developer, Full stack developer" value={f.query} onChange={(e) => setF({ ...f, query: e.target.value })} /></span></label>
           <div className="az-f" style={{ flex: '0 0 150px' }}>Country<CountryPicker options={countries} value={cc} onChange={setCc} worldwide={ww} onWorldwide={setWw} /></div>
           <label className="az-f" style={{ flex: '0 0 118px' }}>Posted within<select value={f.maxAge} onChange={(e) => setF({ ...f, maxAge: Number(e.target.value) })}>{[1, 2, 3, 5, 7, 14].map((n) => <option key={n} value={n}>{n === 1 ? '24 hours' : `${n} days`}</option>)}</select></label>
           <label className="az-f" style={{ flex: '0 0 84px' }}>Results<select value={f.limit} onChange={(e) => setF({ ...f, limit: Number(e.target.value) })}>{[10, 20, 30, 40].map((n) => <option key={n}>{n}</option>)}</select></label>
@@ -211,7 +240,7 @@ export default function Discover() {
           {sources.map((s) => <label key={s.id} className="pg-chk"><input type="checkbox" checked={!!on[s.id]} onChange={(e) => setOn({ ...on, [s.id]: e.target.checked })} /><span>{s.name}</span></label>)}
           <span style={{ flex: 1 }} />
           <label className="pg-chk" title={ai?.configured ? `Uses ${ai.model}` : 'Add GEMINI_API_KEY to enable'}>
-            <input type="checkbox" disabled={!ai?.configured} checked={f.enrich && !!ai?.configured} onChange={(e) => setF({ ...f, enrich: e.target.checked })} /><span>✨ AI review of top results{ai?.configured && <em className="jf-model">{ai.model}</em>}</span>
+            <input type="checkbox" disabled={!ai?.configured} checked={f.enrich && !!ai?.configured} onChange={(e) => setF({ ...f, enrich: e.target.checked })} /><span title="Gemini suggests related job titles from your skills, searches them too, and rates the fit of the best openings">✨ AI search boost + review{ai?.configured && <em className="jf-model">{ai.model}</em>}</span>
           </label>
         </div>
         {ext.length > 0 && (
@@ -272,39 +301,80 @@ export default function Discover() {
             <label className="faint" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>Min score <select value={min} onChange={(e) => setMin(Number(e.target.value))} style={{ width: 100, minWidth: 100, height: 30, lineHeight: '20px', paddingBottom: 3 }}>{[0, 50, 60, 70, 80].map((n) => <option key={n} value={n}>{n || 'any'}</option>)}</select></label>
           </div>
           {res.sources.some((s: any) => !s.ok) && <div className="msg warn" style={{ marginBottom: 8 }}>Could not reach: {res.sources.filter((s: any) => !s.ok).map((s: any) => `${s.name} (${s.error})`).join(', ')}.</div>}
+          <div className="jc-src">
+            <b>Searched</b>
+            {res.sources.map((x: any) => <span key={x.id} className={x.ok ? (x.count ? 'ok' : '') : 'bad'} title={x.ok ? `${x.count} openings fetched` : x.error}>{x.name} <i>{x.ok ? x.count : '✕'}</i></span>)}
+            {res.aiRanked > 0 && <span className="ai">✨ Gemini rated {res.aiRanked} openings</span>}
+          </div>
+          {res.aiRoles?.length > 0 && <div className="faint" style={{ marginBottom: 6 }}>✨ AI also searched related titles from your skills: {res.aiRoles.join(' · ')}</div>}
+          {(res.aiRoleNote || res.rankNote) && <div className="faint" style={{ marginBottom: 6 }}>AI boost partly skipped: {res.aiRoleNote ?? res.rankNote}</div>}
+          {res.roles?.length > 1 && <div className="faint" style={{ marginBottom: 6 }}>Searched {res.roles.length} roles separately: {res.roles.join(' · ')}</div>}
+          {(res.hints ?? []).map((h: string) => <div key={h} className="msg info" style={{ marginBottom: 8 }}>💡 {h}</div>)}
           {res.aiNote && <div className="msg warn" style={{ marginBottom: 8 }}>AI review stopped: {res.aiNote} Showing keyword-based scores for the rest.</div>}
           {items.length === 0 ? <div className="pg-empty"><div className="big">🔎</div><b>No openings matched</b><span>Try a broader search or add more skills to your profile.</span></div> : (
-            <div className="jf-list">
-              <div className="jf-head"><span /><span>Score</span><span>Role</span><span>Contact</span><span>Status &amp; actions</span></div>
-              {items.map((it: any) => { const a = appOf(it); const dom = it.applicationUrl ? (() => { try { return new URL(it.applicationUrl).hostname.replace(/^www\./, ''); } catch { return null; } })() : null; return (
-              <article key={it.jobId} className={`jf-item ${sel[it.jobId] && canPick(it) ? 'picked' : ''}`}>
-                <label className="jf-pick" title={canPick(it) ? 'Select to send' : it.applyMethod !== 'email' ? 'No apply email: use the posting link' : 'Already handled'}>
-                  <input type="checkbox" disabled={!canPick(it) || sending} checked={!!sel[it.jobId] && canPick(it)} onChange={(e) => setSel({ ...sel, [it.jobId]: e.target.checked })} />
-                </label>
-                <div className="jf-score" title={`${REC[it.recommendation]?.l ?? ''} (match score)`} style={{ ['--c' as any]: scoreColor(it.score) }}><b>{it.score}</b><small>{REC[it.recommendation]?.l ?? ''}</small></div>
-                <div className="jf-main">
-                  <div className="jf-title"><b>{it.title}</b>{it.isNew && <span className="jf-new">New</span>}</div>
-                  <div className="jf-meta"><b>{it.company}</b>{[it.location, it.workMode, it.employmentType, it.source, ago(it.postedAt) && `Posted ${ago(it.postedAt)}`].filter(Boolean).map((m: string) => <span key={m}>{m}</span>)}</div>
-                  <div className="jf-skills">
-                    {it.matched.slice(0, 6).map((sk: string) => <span key={sk} className="ok">✓ {sk}</span>)}
+            <div className="jc-list">
+              {items.map((it: any) => {
+                const a = appOf(it); const dom = it.applicationUrl ? (() => { try { return new URL(it.applicationUrl).hostname.replace(/^www\./, ''); } catch { return null; } })() : null;
+                const applied = sentLike.includes(a?.status); const hasMail = !!it.applicationEmail; const hasPhone = !!it.contactPhone;
+                const places: string[] = it.countriesList?.length ? it.countriesList : it.location ? [it.location] : [];
+                const worldwide = places.length === 1 && /worldwide|anywhere/i.test(places[0]);
+                return (
+                <article key={it.jobId} className={`jc ${sel[it.jobId] && canPick(it) ? 'picked' : ''}`}>
+                  <div className="jc-top">
+                    <label className="jf-pick" title={canPick(it) ? 'Select to send' : hasMail ? 'Already handled' : 'Add an HR email below to send from here'}>
+                      <input type="checkbox" disabled={!canPick(it) || sending} checked={!!sel[it.jobId] && canPick(it)} onChange={(e) => setSel({ ...sel, [it.jobId]: e.target.checked })} />
+                    </label>
+                    <div className="jc-logo" aria-hidden="true">{it.logoLetter ?? it.company?.[0] ?? '?'}</div>
+                    <div className="jc-head">
+                      <div className="jc-title"><b>{it.title}</b>{it.isNew && <span className="jf-new">New</span>}</div>
+                      <div className="jc-co"><b>{it.company}</b><span>·</span><span>{it.source}</span>{ago(it.postedAt) && <><span>·</span><span>Posted {ago(it.postedAt)}</span></>}</div>
+                    </div>
+                    <div className="jc-score" title={`${REC[it.recommendation]?.l ?? ''} (match score)`} style={{ ['--c' as any]: scoreColor(it.score), ['--p' as any]: it.score }}><b>{it.score}</b><small>{REC[it.recommendation]?.l ?? ''}</small></div>
+                  </div>
+
+                  <div className="jc-chips">
+                    {it.workMode && <span className="jc-c mode">🏠 {it.workMode === 'remote' ? 'Remote' : it.workMode === 'hybrid' ? 'Hybrid' : 'On-site'}</span>}
+                    {worldwide ? <span className="jc-c loc">🌍 Worldwide</span> : places.slice(0, 5).map((pl) => <span key={pl} className={`jc-c loc ${/india/i.test(pl) ? 'in' : ''}`}>📍 {pl}</span>)}
+                    {places.length > 5 && <span className="jc-c">+{places.length - 5} more</span>}
+                    {(it.cities ?? []).map((c: string) => <span key={c} className="jc-c city" title="City mentioned in the posting">🏙 {c}</span>)}
+                    {it.employmentType && <span className="jc-c">💼 {it.employmentType}</span>}
+                    {it.salary?.max && <span className="jc-c pay">💰 {[it.salary.min, it.salary.max].filter(Boolean).map((n: number) => Number(n).toLocaleString()).join(' – ')} {it.salary.currency ?? ''}</span>}
+                  </div>
+                  <div className="jc-skills">
+                    {it.matched.slice(0, 7).map((sk: string) => <span key={sk} className="ok">✓ {sk}</span>)}
                     {it.missing.slice(0, 4).map((sk: string) => <span key={sk} className="no">✕ {sk}</span>)}
                   </div>
-                </div>
-                <div className="jf-contact">
-                  {it.applicationEmail ? <div className="row1"><span className="k">Email</span><a href={`mailto:${it.applicationEmail}`}>{it.applicationEmail}</a><button type="button" className="cp" title="Copy email" onClick={() => { navigator.clipboard?.writeText(it.applicationEmail); setOk(`Copied ${it.applicationEmail}`); }}>⧉</button></div>
-                    : <div className="row1 none"><span className="k">Email</span>Not listed in the posting</div>}
-                  {it.contactPhone && <div className="row1"><span className="k">Phone</span><a href={`tel:${it.contactPhone.replace(/[^+\d]/g, '')}`}>{it.contactPhone}</a></div>}
-                  {dom && <div className="row1"><span className="k">Apply</span><a href={it.applicationUrl} target="_blank" rel="noopener noreferrer">{dom}</a></div>}
-                  {it.salary?.max && <div className="row1"><span className="k">Salary</span>{[it.salary.min, it.salary.max].filter(Boolean).map((n: number) => Number(n).toLocaleString()).join(' – ')} {it.salary.currency ?? ''}</div>}
-                </div>
-                <div className="jf-act">
-                  <div className="jf-st">{badge(it) ?? <span className="faint">Not applied</span>}</div>
-                  {sentLike.includes(a?.status) ? <button className="btn sm" disabled>✓ Applied</button>
-                    : <button className={`btn sm ${it.applyMethod === 'email' ? 'primary' : ''}`} onClick={() => writeEmail(it)}>{it.applyMethod === 'email' ? '✉ Preview & send' : '✎ Cover note'}</button>}
-                  {it.applicationUrl && <a className="btn sm" href={it.applicationUrl} target="_blank" rel="noopener noreferrer">Open posting ↗</a>}
-                </div>
-                {a?.error && <div className="jf-err">{a.error}</div>}
-              </article>); })}
+
+                  {it.aiFit != null && <div className="jc-ai"><b>✨ AI fit {it.aiFit}%</b>{it.aiReason ? <span>{it.aiReason}</span> : null}</div>}
+
+                  <div className="jc-foot">
+                    <div className="jc-contact">
+                      <div className={`jc-ct ${hasMail ? 'on' : ''}`}><span className="ic">✉</span>{hasMail ? <><a href={`mailto:${it.applicationEmail}`}>{it.applicationEmail}</a><button type="button" className="cp" title="Copy email" onClick={() => { navigator.clipboard?.writeText(it.applicationEmail); setOk(`Copied ${it.applicationEmail}`); }}>⧉</button></> : <em>No email in this posting</em>}</div>
+                      <div className={`jc-ct ${hasPhone ? 'on' : ''}`}><span className="ic">📞</span>{hasPhone ? <a href={`tel:${it.contactPhone.replace(/[^+\d]/g, '')}`}>{it.contactPhone}</a> : <em>No phone in this posting</em>}</div>
+                    </div>
+                    <div className="jc-act">
+                      {applied ? <button className="btn sm" disabled>✓ Applied</button>
+                        : hasMail ? <><button className="btn sm primary" onClick={() => writeEmail(it)}>✉ Preview &amp; send</button>
+                          {hasPhone && <button className="btn sm primary" disabled={sending} onClick={() => sendBoth(it)} title="Sends the email now and opens WhatsApp">✉ + 💬 Both</button>}</>
+                        : <>{it.applicationUrl && <a className="btn sm primary" href={it.applicationUrl} target="_blank" rel="noopener noreferrer" title="This employer takes applications on the job board">Apply on {dom ?? 'site'} ↗</a>}
+                          <button className="btn sm" onClick={() => writeEmail(it)} title="AI writes a cover note you can paste into the application">✎ Cover note</button></>}
+                      {hasPhone && <a className="btn sm jf-wa" href={waLink(it)} target="_blank" rel="noopener noreferrer" title="Opens WhatsApp with a message ready to send">💬 WhatsApp</a>}
+                      {!applied && <button type="button" className="btn sm" onClick={() => setAdd(add?.id === it.jobId ? null : { id: it.jobId, email: it.applicationEmail ?? '', phone: it.contactPhone ?? '' })}>{hasMail || hasPhone ? '✎ Edit contact' : '➕ Add HR contact'}</button>}
+                      {it.applicationUrl && hasMail && <a className="btn sm" href={it.applicationUrl} target="_blank" rel="noopener noreferrer">Posting ↗</a>}
+                    </div>
+                  </div>
+
+                  {!hasMail && !applied && <div className="jc-tip">💡 <b>No email is published for this job.</b> Apply on {dom ?? 'the site'}, or find the HR/recruiter email (company site, LinkedIn) and press <b>Add HR contact</b>: then you can send your resume and open WhatsApp from here.</div>}
+                  {add?.id === it.jobId && (
+                    <form className="jc-add" onSubmit={(e) => { e.preventDefault(); saveContact(it); }}>
+                      <label>HR email<input type="email" value={add.email} placeholder="hr@company.com" onChange={(e) => setAdd({ ...add, email: e.target.value })} /></label>
+                      <label>Phone / WhatsApp<input value={add.phone} placeholder="+91 98765 43210" onChange={(e) => setAdd({ ...add, phone: e.target.value })} /></label>
+                      <button className="btn sm primary" disabled={addBusy}>{addBusy ? 'Saving…' : 'Save contact'}</button>
+                      <button type="button" className="btn sm" onClick={() => setAdd(null)}>Cancel</button>
+                    </form>
+                  )}
+                  {a?.error && <div className="jf-err">{a.error}</div>}
+                </article>); })}
             </div>)}
           {picked.length > 0 || sending ? (
             <div className="jf-bar">

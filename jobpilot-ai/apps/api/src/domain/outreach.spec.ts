@@ -25,7 +25,7 @@ test('HTML email escapes everything and lists attachments', () => {
   assert.match(renderOutreachText('Hi', '', 'Arjun'), /Best regards,\nArjun/);
 });
 test('gap has jitter and a floor', () => {
-  assert.equal(nextGapMs(45, () => 0), 45000); assert.equal(nextGapMs(45, () => 1), 72000); assert.equal(nextGapMs(1, () => 0), 20000);
+  assert.equal(nextGapMs(45, () => 0), 45000); assert.equal(nextGapMs(45, () => 1), 72000); assert.equal(nextGapMs(1, () => 0), 10000);
 });
 test('starter template uses only known facts', () => {
   const t = starterTemplate({ name: 'Arjun', role: 'Full Stack Developer', skills: ['Node.js', 'React'], years: 2 });

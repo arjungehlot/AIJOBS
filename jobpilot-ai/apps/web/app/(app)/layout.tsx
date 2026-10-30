@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { ReactNode, useEffect, useState } from 'react';
+import { ReactNode, useEffect, useRef, useState } from 'react';
 import { Icon, Logo } from '@/components/ui';
 import { api, token } from '@/lib/api';
 
@@ -53,12 +53,20 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const [col, setCol] = useState(false);
   useEffect(() => { try { setCol(localStorage.getItem('jp.side') === '1'); } catch { /* storage unavailable */ } }, []);
   const toggle = () => setCol((v) => { try { localStorage.setItem('jp.side', v ? '0' : '1'); } catch { /* ignore */ } return !v; });
+  const [menu, setMenu] = useState(false); const menuRef = useRef<HTMLDivElement>(null);
   const [me, setMe] = useState<{ name: string; email: string; plan: string; role?: string; image?: string | null } | null>(null);
   useEffect(() => {
     if (!token.get()) { router.replace('/login'); return; }
     const load = () => api('/auth/me').then(setMe).catch(() => undefined);
     load(); window.addEventListener('jobpilot:profile', load);
   }, [router]);
+  useEffect(() => {
+    if (!menu) return;
+    const close = (e: MouseEvent) => { if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenu(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenu(false); };
+    document.addEventListener('mousedown', close); document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', esc); };
+  }, [menu]);
   useEffect(() => {
     const k = (e: KeyboardEvent) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setPal((v) => !v); } };
     window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k);
@@ -93,7 +101,22 @@ export default function AppShell({ children }: { children: ReactNode }) {
           <span className="sp" />
           <button className="btn sm" onClick={() => setPal(true)} aria-label="Open command palette"><Icon name="search" size={13} />Search <span className="faint">Ctrl K</span></button>
           <Link href="/profiles" className="btn sm"><Icon name="user" size={13} />Profiles</Link>
-          <Link href="/analyzer" className="btn primary sm"><Icon name="plus" size={13} />Analyze a job</Link>
+          <div className="pm" ref={menuRef}>
+            <button className="pm-btn" onClick={() => setMenu((v) => !v)} aria-haspopup="menu" aria-expanded={menu} aria-label="Account menu" title={me?.name ?? 'Account'}>
+              {me?.image ? <img src={me.image} alt="" referrerPolicy="no-referrer" /> : <span>{initials}</span>}
+            </button>
+            {menu && (
+              <div className="pm-pop" role="menu">
+                <div className="pm-who">
+                  {me?.image ? <img src={me.image} alt="" referrerPolicy="no-referrer" /> : <span className="pm-ini">{initials}</span>}
+                  <div style={{ minWidth: 0 }}><b>{me?.name ?? ' '}</b><small>{me?.email}</small></div>
+                </div>
+                <Link role="menuitem" href="/settings/profile" onClick={() => setMenu(false)}><Icon name="user" size={14} />My profile</Link>
+                <Link role="menuitem" href="/settings/email" onClick={() => setMenu(false)}><Icon name="send" size={14} />Email setup</Link>
+                <button role="menuitem" onClick={() => { token.clear(); router.push('/login'); }}><Icon name="out" size={14} />Log out</button>
+              </div>
+            )}
+          </div>
         </header>
         <main className="main">{children}</main>
       </div>

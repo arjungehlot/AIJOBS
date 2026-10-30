@@ -91,7 +91,7 @@ export function renderOutreachText(body: string, signature: string, senderName: 
 
 /** Wait between two sends: base seconds plus up to 60% random jitter, so the pattern is human-like. */
 export function nextGapMs(baseSec: number, rand: () => number = Math.random): number {
-  const base = Math.max(20, baseSec);
+  const base = Math.max(10, baseSec);
   return Math.round((base + base * 0.6 * rand()) * 1000);
 }
 

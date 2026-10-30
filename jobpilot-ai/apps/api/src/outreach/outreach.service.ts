@@ -30,7 +30,7 @@ const ACTIONS: Record<string, string> = {
 };
 export const CampaignDto = z.object({
   name: z.string().trim().min(1).max(120), subject: z.string().trim().min(3).max(300), body: z.string().trim().min(20).max(8000),
-  resumeId: oid, includeExtraFiles: z.boolean().default(true), gapSec: z.number().int().min(20).max(600).default(45),
+  resumeId: oid, includeExtraFiles: z.boolean().default(true), gapSec: z.number().int().min(10).max(600).default(45),
   recipientsText: z.string().max(60_000), start: z.boolean().default(false),
 });
 
@@ -55,7 +55,7 @@ export class OutreachService {
   // ---- info ----
   async limits(userId: string) {
     const sent = await this.sentSince(userId, new Date(Date.now() - DAY));
-    return { dailyLimit: env.outreachDailyLimit, sentLast24h: sent, maxRecipients: MAX_RECIPIENTS, minGapSec: 20, mailMode: env.mailProvider, gmailConnected: await this.gmail.hasAccount(userId) };
+    return { dailyLimit: env.outreachDailyLimit, sentLast24h: sent, maxRecipients: MAX_RECIPIENTS, minGapSec: 10, mailMode: env.mailProvider, gmailConnected: await this.gmail.hasAccount(userId) };
   }
   private sentSince(userId: string, since: Date) { return this.recs.countDocuments({ userId, status: 'sent', sentAt: { $gte: since } }); }
 

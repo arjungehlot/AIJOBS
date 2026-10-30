@@ -77,7 +77,9 @@ export function fromJobicy(json: any): RawJob[] {
 
 export function fromHimalayas(json: any): RawJob[] {
   return (Array.isArray(json?.jobs) ? json.jobs : []).map((x: any) => {
-    const loc = Array.isArray(x.locationRestrictions) && x.locationRestrictions.length ? x.locationRestrictions.join(', ') : 'Worldwide';
+    // locationRestrictions is a list of { alpha2, name, slug } (older feeds sent plain strings). An empty list means worldwide.
+    const places = (Array.isArray(x.locationRestrictions) ? x.locationRestrictions : []).map((r: any) => (typeof r === 'string' ? r : str(r?.name, 60))).filter(Boolean);
+    const loc = places.length ? places.slice(0, 12).join(', ') : 'Worldwide';
     const annual = !x.salaryPeriod || /year|annual/i.test(String(x.salaryPeriod));
     return finish({
       source: 'himalayas', providerJobId: String(x.guid ?? x.applicationLink ?? ''), company: str(x.companyName), title: str(x.title), description: htmlToText(x.description || x.excerpt).slice(0, 20000),
@@ -114,14 +116,15 @@ export const SOURCES = ['remotive', 'arbeitnow', 'remoteok', 'jobicy', 'himalaya
 export type SourceId = (typeof SOURCES)[number];
 
 /** Public, key-less endpoints. `q` is a free-text title/skill query. */
-export function sourceUrl(id: SourceId, q: string, keys: { adzunaId?: string; adzunaKey?: string; country?: string } = {}): string {
+export function sourceUrl(id: SourceId, q: string, keys: { adzunaId?: string; adzunaKey?: string; country?: string; page?: number } = {}): string {
   const e = encodeURIComponent(q);
   switch (id) {
     case 'remotive': return `https://remotive.com/api/remote-jobs?limit=60${q ? `&search=${e}` : ''}`;
     case 'arbeitnow': return 'https://www.arbeitnow.com/api/job-board-api';
     case 'remoteok': return 'https://remoteok.com/api';
     case 'jobicy': return `https://jobicy.com/api/v2/remote-jobs?count=50${q ? `&tag=${e}` : ''}`;
-    case 'himalayas': return q ? `https://himalayas.app/jobs/api/search?q=${e}&limit=20` : 'https://himalayas.app/jobs/api?limit=20';
+    // Search endpoint: free text `q`, ISO `country` (jobs that accept applicants from there, plus worldwide ones), newest first, 20 per page.
+    case 'himalayas': return `https://himalayas.app/jobs/api/search?${q ? `q=${e}&` : ''}sort=recent${keys.country ? `&country=${encodeURIComponent(keys.country.toUpperCase())}` : ''}${keys.page && keys.page > 1 ? `&page=${keys.page}` : ''}`;
     case 'themuse': return 'https://www.themuse.com/api/public/jobs?page=1&descending=true';
     case 'adzuna': return `https://api.adzuna.com/v1/api/jobs/${keys.country ?? 'in'}/search/1?app_id=${encodeURIComponent(keys.adzunaId ?? '')}&app_key=${encodeURIComponent(keys.adzunaKey ?? '')}&results_per_page=50&sort_by=date&max_days_old=30${q ? `&what=${e}` : ''}`;
   }

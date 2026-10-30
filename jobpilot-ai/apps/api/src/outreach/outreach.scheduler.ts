@@ -6,6 +6,6 @@ import { OutreachService } from './outreach.service';
 export class OutreachScheduler implements OnModuleInit, OnModuleDestroy {
   private timer?: NodeJS.Timeout; private running = false;
   constructor(private readonly svc: OutreachService) {}
-  onModuleInit() { this.timer = setInterval(() => { if (this.running) return; this.running = true; void this.svc.tick().finally(() => { this.running = false; }); }, 10_000); this.timer.unref(); }
+  onModuleInit() { this.timer = setInterval(() => { if (this.running) return; this.running = true; void this.svc.tick().finally(() => { this.running = false; }); }, 3_000); this.timer.unref(); }
   onModuleDestroy() { if (this.timer) clearInterval(this.timer); }
 }

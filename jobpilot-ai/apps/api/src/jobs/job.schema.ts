@@ -22,6 +22,7 @@ export class Job {
   @Prop() currency?: string;
   @Prop() applicationUrl?: string;
   @Prop() applicationEmail?: string;
+  @Prop() contactPhone?: string; // from the posting, or added by the user
   @Prop({ default: 'active', enum: ['active', 'expired', 'closed'] }) status: string;
   @Prop({ default: false }) shortlisted: boolean;
   @Prop({ default: () => new Date() }) firstSeenAt: Date;

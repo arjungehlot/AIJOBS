@@ -241,9 +241,10 @@ export default function Outreach() {
               {resumes.length === 0 && <span className="faint">Add a PDF in <a href="/resumes" style={{ color: 'var(--primary-600)' }}>Resume Studio</a>.</span>}
             </label>
             <div className="ou-two">
-              <label className="f ou-f">Gap<select value={gap} onChange={(e) => setGap(Number(e.target.value))}>{[30, 45, 60, 90, 120, 180].map((s) => <option key={s} value={s}>{s >= 60 ? `${s / 60} min` : `${s} sec`}</option>)}</select></label>
+              <label className="f ou-f">Gap<select value={gap} onChange={(e) => setGap(Number(e.target.value))}>{[10, 15, 20, 30, 45, 60, 90, 120, 180].map((s) => <option key={s} value={s}>{s >= 60 ? `${s / 60} min` : `${s} sec`}</option>)}</select></label>
               <label className="ou-check"><input type="checkbox" checked={extra} onChange={(e) => setExtra(e.target.checked)} /><span>Extra files</span></label>
             </div>
+            {gap < 30 && <div className="faint ou-warn">Very fast sending can look like spam to Gmail. For many emails, 30 sec or more is safer.</div>}
           </section>
 
           <section className="card ou-c ou-live" ref={liveRef as any}>

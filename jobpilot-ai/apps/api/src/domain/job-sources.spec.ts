@@ -57,6 +57,8 @@ test('Himalayas, The Muse and Adzuna normalise to the shared job shape', () => {
   const a = fromAdzuna({ results: [{ id: '9', title: 'Node Developer', description: 'Pune role', created: '2026-10-21T00:00:00Z', company: { display_name: 'Zed' }, location: { display_name: 'Pune, Maharashtra' }, redirect_url: 'https://a.test/r', salary_min: 600000, salary_max: 900000 }] });
   assert.equal(a[0].currency, 'INR'); assert.equal(a[0].company, 'Zed');
   assert.deepEqual(fromHimalayas({}), []);
+  const obj = fromHimalayas({ jobs: [{ guid: 'g2', title: 'Node Dev', companyName: 'Beta', description: 'x', locationRestrictions: [{ alpha2: 'IN', name: 'India', slug: 'india' }, { alpha2: 'US', name: 'United States', slug: 'united-states' }] }, { guid: 'g3', title: 'Any', companyName: 'Gamma', description: 'x', locationRestrictions: [] }] });
+  assert.equal(obj[0].location, 'India, United States'); assert.equal(obj[1].location, 'Worldwide');
 });
 test('external search links are pre-filled and Adzuna url carries its keys', () => {
   const l = externalSearchLinks('Full Stack Developer', 5);
