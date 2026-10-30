@@ -9,6 +9,8 @@ export class User {
   @Prop({ default: 'user', enum: ['user', 'admin', 'super_admin'] }) role: string;
   @Prop({ default: 'free', enum: ['free', 'pro', 'premium_agent', 'teams'] }) plan: string;
   @Prop({ default: 'active', enum: ['active', 'suspended'] }) status: string;
+  @Prop() picture?: string; // Google profile photo URL
+  @Prop() avatar?: string; // uploaded photo as a small data URL; wins over picture
   @Prop() lastLoginAt?: Date;
   @Prop({ default: 1 }) schemaVersion: number;
 }

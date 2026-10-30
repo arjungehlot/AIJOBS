@@ -11,6 +11,8 @@ export const RegisterDto = z.object({
   email: z.string().trim().toLowerCase().email(),
   password: z.string().min(10).max(200),
 });
+export const ProfileDto = z.object({ name: z.string().trim().min(1).max(120) });
+export const AvatarDto = z.object({ image: z.string().max(200_000).regex(/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/, 'Must be a JPEG, PNG or WebP image') });
 export const LoginDto = z.object({ email: z.string().trim().toLowerCase().email(), password: z.string().min(1) });
 
 @Injectable()
@@ -41,7 +43,29 @@ export class AuthService {
   async me(id: string) {
     const u = await this.users.findById(id).lean();
     if (!u) throw new UnauthorizedException();
-    return { id: String(u._id), name: u.name, email: u.email, plan: u.plan, role: u.role };
+    return this.view(u);
+  }
+
+  private view(u: any) {
+    return { id: String(u._id), name: u.name, email: u.email, plan: u.plan, role: u.role, image: u.avatar || u.picture || null, hasCustomImage: !!u.avatar };
+  }
+
+  async updateProfile(id: string, dto: z.infer<typeof ProfileDto>) {
+    const u = await this.users.findByIdAndUpdate(id, { $set: { name: dto.name } }, { new: true }).lean();
+    if (!u) throw new UnauthorizedException();
+    return this.view(u);
+  }
+
+  async setAvatar(id: string, dto: z.infer<typeof AvatarDto>) {
+    const u = await this.users.findByIdAndUpdate(id, { $set: { avatar: dto.image } }, { new: true }).lean();
+    if (!u) throw new UnauthorizedException();
+    return this.view(u);
+  }
+
+  async removeAvatar(id: string) {
+    const u = await this.users.findByIdAndUpdate(id, { $unset: { avatar: '' } }, { new: true }).lean();
+    if (!u) throw new UnauthorizedException();
+    return this.view(u);
   }
 
   private session(u: any) {

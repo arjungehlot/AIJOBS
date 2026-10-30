@@ -83,8 +83,8 @@ export class GmailService {
       let u = await this.users.findOne({ email });
       if (u?.status === 'suspended') return fail('This account is suspended. Contact support.');
       const isNew = !u;
-      if (!u) u = await this.users.create({ email, name: String(info.name || email.split('@')[0]).slice(0, 120), passwordHash: await bcrypt.hash(randomBytes(32).toString('hex'), 10) }); // no usable password: this account signs in with Google
-      await this.users.updateOne({ _id: u._id }, { $set: { lastLoginAt: new Date() } });
+      if (!u) u = await this.users.create({ email, name: String(info.name || email.split('@')[0]).slice(0, 120), passwordHash: await bcrypt.hash(randomBytes(32).toString('hex'), 10), picture: typeof info.picture === 'string' ? info.picture : undefined }); // no usable password: this account signs in with Google
+      await this.users.updateOne({ _id: u._id }, { $set: { lastLoginAt: new Date(), ...(typeof info.picture === 'string' ? { picture: info.picture } : {}) } });
       const userId = String(u._id);
       await this.accounts.findOneAndUpdate({ userId, provider: 'gmail' }, { $set: { email, refreshTokenEnc: encryptSecret(tok.refresh_token, env.tokenKey), scopes: granted, status: 'active' }, $unset: { lastError: '' } }, { upsert: true });
       this.cache.delete(userId);

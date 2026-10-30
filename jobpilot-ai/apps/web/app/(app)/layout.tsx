@@ -13,7 +13,7 @@ const GROUPS = [
     { label: 'Mailbox', href: '/mail', icon: 'mail' }, { label: 'Reply Inbox', href: '/inbox', icon: 'scan' }, { label: 'HR Contacts', href: '/contacts', icon: 'users' },
     { label: 'HR Outreach', href: '/outreach', icon: 'send' }, { label: 'Follow-ups', href: '/followups', icon: 'bell' }, { label: 'Email Setup', href: '/settings/email', icon: 'send' }, { label: 'Resume Studio', href: '/resumes', icon: 'file' } ] },
   { h: 'Automation & insight', items: [
-    { label: 'AI Agent', href: '/agent', icon: 'bot' }, { label: 'Analytics', href: '/analytics', icon: 'chart' }, { label: 'Interview Prep', href: '/prep', icon: 'book' }, { label: 'AI Settings', href: '/settings/ai', icon: 'spark' } ] },
+    { label: 'AI Agent', href: '/agent', icon: 'bot' }, { label: 'Analytics', href: '/analytics', icon: 'chart' }, { label: 'Interview Prep', href: '/prep', icon: 'book' }, { label: 'AI Settings', href: '/settings/ai', icon: 'spark' }, { label: 'My Profile', href: '/settings/profile', icon: 'user' } ] },
 ];
 const ADMIN = { h: 'Super admin', items: [
   { label: 'Admin Overview', href: '/admin', icon: 'shield' }, { label: 'Users', href: '/admin/users', icon: 'users' },
@@ -21,7 +21,7 @@ const ADMIN = { h: 'Super admin', items: [
 // Each destination gets its own gradient so the rail reads at a glance (white glyph on a raised chip).
 const TONE: Record<string, [string, string]> = {
   '/admin': ['#F43F5E', '#BE123C'], '/admin/users': ['#8B5CF6', '#5B21B6'], '/admin/audit': ['#84CC16', '#4D9A0F'], '/admin/system': ['#14B8A6', '#0F766E'],
-  '/dashboard': ['#6366F1', '#4338CA'], '/discover': ['#14B8A6', '#0F766E'], '/settings/ai': ['#F472B6', '#DB2777'], '/analyzer': ['#0EA5E9', '#0369A1'], '/applications': ['#FBBF24', '#EA7A0C'], '/profiles': ['#EC4899', '#9D174D'],
+  '/dashboard': ['#6366F1', '#4338CA'], '/discover': ['#14B8A6', '#0F766E'], '/settings/ai': ['#F472B6', '#DB2777'], '/settings/profile': ['#38BDF8', '#0369A1'], '/analyzer': ['#0EA5E9', '#0369A1'], '/applications': ['#FBBF24', '#EA7A0C'], '/profiles': ['#EC4899', '#9D174D'],
   '/mail': ['#3B82F6', '#1D4ED8'], '/inbox': ['#8B5CF6', '#6D28D9'], '/contacts': ['#10B981', '#047857'], '/followups': ['#F97316', '#C2410C'], '/outreach': ['#EC4899', '#BE185D'],
   '/settings/email': ['#06B6D4', '#0E7490'], '/resumes': ['#A855F7', '#7E22CE'], '/agent': ['#D946EF', '#A21CAF'], '/analytics': ['#22C55E', '#15803D'], '/prep': ['#FBBF24', '#D97706'],
 };
@@ -53,10 +53,11 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const [col, setCol] = useState(false);
   useEffect(() => { try { setCol(localStorage.getItem('jp.side') === '1'); } catch { /* storage unavailable */ } }, []);
   const toggle = () => setCol((v) => { try { localStorage.setItem('jp.side', v ? '0' : '1'); } catch { /* ignore */ } return !v; });
-  const [me, setMe] = useState<{ name: string; email: string; plan: string; role?: string } | null>(null);
+  const [me, setMe] = useState<{ name: string; email: string; plan: string; role?: string; image?: string | null } | null>(null);
   useEffect(() => {
     if (!token.get()) { router.replace('/login'); return; }
-    api('/auth/me').then(setMe).catch(() => undefined);
+    const load = () => api('/auth/me').then(setMe).catch(() => undefined);
+    load(); window.addEventListener('jobpilot:profile', load);
   }, [router]);
   useEffect(() => {
     const k = (e: KeyboardEvent) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setPal((v) => !v); } };
@@ -72,15 +73,15 @@ export default function AppShell({ children }: { children: ReactNode }) {
           <div key={g.h}>
             <div className="nav-h">{g.h}</div><div className="nav-rule" />
             {g.items.map((n) => {
-              const on = n.href === '/admin' ? path === '/admin' : n.href === '/settings/ai' || n.href === '/settings/email' ? path === n.href : path.startsWith(n.href);
+              const on = n.href === '/admin' ? path === '/admin' : n.href.startsWith('/settings/') ? path === n.href : path.startsWith(n.href);
               return <Link key={n.href} href={n.href} className={`nav ${on ? 'on' : ''}`} aria-current={on ? 'page' : undefined} title={col ? n.label : undefined}><span className="ni" style={{ background: `linear-gradient(145deg, ${TONE[n.href]?.[0] ?? '#6366F1'}, ${TONE[n.href]?.[1] ?? '#4338CA'})`, boxShadow: `0 3px 8px ${TONE[n.href]?.[1] ?? '#4338CA'}40, inset 0 1px 0 rgba(255,255,255,.45), inset 0 -2px 0 rgba(0,0,0,.14)` }}><Icon name={n.icon} size={13} /></span><span className="nl">{n.label}</span></Link>;
             })}
           </div>
         ))}
         <div className="side-foot">
-          <div className="avatar" aria-hidden="true">{initials}</div>
+          {me?.image ? <img className="avatar" src={me.image} alt="" referrerPolicy="no-referrer" style={{ objectFit: 'cover' }} /> : <div className="avatar" aria-hidden="true">{initials}</div>}
           <div className="nl" style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{me?.name ?? ' '}</div>
+            <Link href="/settings/profile" title="Edit profile" style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block', color: 'inherit', textDecoration: 'none' }}>{me?.name ?? ' '}</Link>
             <div className="faint" style={{ textTransform: 'capitalize' }}>{me?.role === 'super_admin' ? 'Super admin' : `${me?.plan?.replace('_', ' ') ?? ''} plan`}</div>
           </div>
           <button className="btn sm lo" aria-label="Log out" title="Log out" onClick={() => { token.clear(); router.push('/login'); }}><Icon name="out" size={14} /></button>

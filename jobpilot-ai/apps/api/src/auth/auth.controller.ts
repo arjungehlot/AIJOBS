@@ -1,8 +1,8 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Patch, Post, Put } from '@nestjs/common';
 import { AuthUser, CurrentUser, Public } from '../common/auth';
 import { ZodPipe } from '../common/zod.pipe';
 import { GmailService } from '../mail/gmail.service';
-import { AuthService, LoginDto, RegisterDto } from './auth.service';
+import { AuthService, AvatarDto, LoginDto, ProfileDto, RegisterDto } from './auth.service';
 
 @Controller('auth')
 export class AuthController {
@@ -20,4 +20,13 @@ export class AuthController {
 
   @Get('me')
   me(@CurrentUser() u: AuthUser) { return this.auth.me(u.id); }
+
+  @Patch('profile')
+  profile(@CurrentUser() u: AuthUser, @Body(new ZodPipe(ProfileDto)) dto: any) { return this.auth.updateProfile(u.id, dto); }
+
+  @Put('avatar')
+  setAvatar(@CurrentUser() u: AuthUser, @Body(new ZodPipe(AvatarDto)) dto: any) { return this.auth.setAvatar(u.id, dto); }
+
+  @Delete('avatar')
+  removeAvatar(@CurrentUser() u: AuthUser) { return this.auth.removeAvatar(u.id); }
 }
