@@ -1,6 +1,8 @@
 // Server-side (SSR / RSC): Vercel injects the api service's internal URL via the binding as API_URL.
-// Client-side (browser): NEXT_PUBLIC_API_URL is baked into the bundle at build time; when unset it
-// defaults to a same-origin relative path, which Vercel's /api/* rewrite forwards to the api service.
+// Client-side (browser): NEXT_PUBLIC_API_URL is baked into the JS bundle at build time.
+//   • On Vercel (services mode) leave it unset — the same-origin /api/* rewrite reaches the api service.
+//   • On any other host (e.g. separate subdomains) set NEXT_PUBLIC_API_URL to the full API origin,
+//     e.g. https://jobpilotapi.buildsoftware.in/api/v1
 const BASE =
   typeof window === 'undefined'
     ? `${process.env.API_URL ?? 'http://localhost:4000'}/api/v1`
