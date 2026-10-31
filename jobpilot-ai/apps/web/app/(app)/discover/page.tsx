@@ -365,7 +365,7 @@ export default function Discover() {
                   </div>
 
                   {!hasMail && !applied && <div className="jc-tip">💡 <b>No email is published for this job.</b> Apply on {dom ?? 'the site'}, or find the HR/recruiter email (company site, LinkedIn) and press <b>Add HR contact</b>: then you can send your resume and open WhatsApp from here.</div>}
-                  {add?.id === it.jobId && (
+                  {add != null && add.id === it.jobId && (
                     <form className="jc-add" onSubmit={(e) => { e.preventDefault(); saveContact(it); }}>
                       <label>HR email<input type="email" value={add.email} placeholder="hr@company.com" onChange={(e) => setAdd({ ...add, email: e.target.value })} /></label>
                       <label>Phone / WhatsApp<input value={add.phone} placeholder="+91 98765 43210" onChange={(e) => setAdd({ ...add, phone: e.target.value })} /></label>
