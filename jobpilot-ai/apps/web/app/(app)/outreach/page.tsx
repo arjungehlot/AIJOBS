@@ -213,9 +213,8 @@ export default function Outreach() {
           <div className="ou-h"><span className="ou-n">2</span><h2>Write the email</h2><span className="sp" />{cur && <span className="faint ou-att"><Icon name="file" size={11} />{cur.fileName}</span>}</div>
           <div className="ou-ai">
             <div className="ou-ai-row">
-              <span className="ou-ai-ic"><Icon name="spark" size={15} /></span>
               <input value={role} onChange={(e) => setRole(e.target.value)} placeholder="Role you want, e.g. Full Stack Developer" maxLength={120} aria-label="Role you want" />
-              <button type="button" className="ou-ai-go" onClick={draft} disabled={!!busy}><Icon name="spark" size={14} />{busy === 'draft' ? 'Writing…' : body.trim() ? 'Rewrite with AI' : 'Write with AI'}</button>
+              <button type="button" className="ou-ai-go icon-only" onClick={draft} disabled={!!busy} title={busy === 'draft' ? 'Writing…' : body.trim() ? 'Rewrite with AI' : 'Write with AI'} aria-label={busy === 'draft' ? 'Writing email…' : body.trim() ? 'Rewrite email with AI' : 'Write email with AI'}>{busy === 'draft' ? <span className="spin" style={{ width: 14, height: 14, borderWidth: 2, borderColor: 'rgba(255,255,255,0.3)', borderTopColor: '#fff' }} /> : <Icon name="spark" size={16} />}</button>
             </div>
             <div className="ou-ai-chips" role="group" aria-label="Enhance the text">
               <span>Enhance</span>
@@ -227,7 +226,7 @@ export default function Outreach() {
           <label className="f ou-f">Subject<input value={subject} onChange={(e) => setSubject(e.target.value)} maxLength={300} placeholder="Full Stack Developer — Your Name" /></label>
           <div className="f ou-f">
             <div className="ou-lab"><span>Message</span><span className="faint">{words} words</span></div>
-            <textarea ref={bodyRef} className="ou-ta" rows={11} value={body} onChange={(e) => setBody(e.target.value)} maxLength={8000} aria-label="Message" placeholder={'Hello {{name}},\n\nI am writing to ask whether {{company}} has openings for…\n\nTip: press “Write with AI” to draft this from your resume.'} />
+            <textarea ref={bodyRef} className="ou-ta" rows={11} value={body} onChange={(e) => setBody(e.target.value)} maxLength={8000} aria-label="Message" placeholder={'Hello {{name}},\n\nI am writing to ask whether {{company}} has openings for…\n\nTip: press the AI button (✨) to draft this from your resume.'} />
             <div className="ou-tags"><span>Insert</span>{['{{name}}', '{{first_name}}', '{{company}}'].map((t) => <button key={t} type="button" onClick={() => insertTag(t)}>{t}</button>)}<small className="faint">Signature is added automatically.</small></div>
           </div>
         </section>
