@@ -4,6 +4,42 @@ import { Icon, Pill } from '@/components/ui';
 import { api, errText } from '@/lib/api';
 import { BrandMark } from '@/components/brand';
 
+/** Attractive confirmation modal — replaces browser window.confirm(). */
+function ConfirmModal({ icon, title, message, confirmLabel, confirmTone, onConfirm, onCancel }: {
+  icon: string; title: string; message: string; confirmLabel: string; confirmTone: 'primary' | 'danger';
+  onConfirm: () => void; onCancel: () => void;
+}) {
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel(); if (e.key === 'Enter') onConfirm(); };
+    window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h);
+  }, [onConfirm, onCancel]);
+  return (
+    <div className="ou-modal" role="dialog" aria-modal="true" aria-label={title} onClick={onCancel}
+      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+      <div className="ou-confirm-box" onClick={(e) => e.stopPropagation()}>
+        <div className="ou-confirm-icon">{icon}</div>
+        <h3 className="ou-confirm-title">{title}</h3>
+        <p className="ou-confirm-msg">{message}</p>
+        <div className="ou-confirm-btns">
+          <button type="button" className="btn" onClick={onCancel}>Cancel</button>
+          <button type="button" className={`btn ${confirmTone === 'danger' ? 'ou-btn-danger' : 'primary'}`} onClick={onConfirm} autoFocus>{confirmLabel}</button>
+        </div>
+      </div>
+      {confirm && (
+        <ConfirmModal
+          icon={confirm.icon}
+          title={confirm.title}
+          message={confirm.message}
+          confirmLabel={confirm.confirmLabel}
+          confirmTone={confirm.confirmTone}
+          onConfirm={confirm.onConfirm}
+          onCancel={() => setConfirm(null)}
+        />
+      )}
+    </div>
+  );
+}
+
 type Rec = { email: string; name?: string; company?: string };
 type Parsed = { valid: Rec[]; invalid: { line: string; reason: string }[]; duplicates: number; truncated: number; alreadyContacted: string[] };
 type Found = Parsed & { seen: number };
@@ -34,6 +70,7 @@ export default function Outreach() {
   const [prev, setPrev] = useState<{ subject: string; html: string } | null>(null);
   const [busy, setBusy] = useState(''); const [err, setErr] = useState(''); const [ok, setOk] = useState('');
   const [undo, setUndo] = useState<string | null>(null); const [aiNote, setAiNote] = useState('');
+  const [confirm, setConfirm] = useState<{ icon: string; title: string; message: string; confirmLabel: string; confirmTone: 'primary' | 'danger'; onConfirm: () => void } | null>(null);
   const [shot, setShot] = useState<string | null>(null); const [found, setFound] = useState<Found | null>(null); const [pick, setPick] = useState<Set<string>>(new Set()); const [drag, setDrag] = useState(false); const [secs, setSecs] = useState(0);
   const file = useRef<HTMLInputElement>(null); const imgIn = useRef<HTMLInputElement>(null); const bodyRef = useRef<HTMLTextAreaElement>(null); const liveRef = useRef<HTMLElement>(null);
 
@@ -79,8 +116,18 @@ export default function Outreach() {
         api<Found>('/outreach/from-image', { body: { image: data } }),
         new Promise<never>((_, rej) => setTimeout(() => rej(new Error('Reading took too long. Try a smaller crop of the screenshot, or try again.')), 45_000)),
       ]);
-      setFound(r); setPick(new Set(r.valid.filter((v) => !r.alreadyContacted.includes(v.email)).map((v) => v.email)));
-      if (!r.valid.length) setErr('No email addresses were found in that image. Try a sharper or larger screenshot.');
+      if (!r.valid.length) { setErr('No email addresses were found in that image. Try a sharper or larger screenshot.'); return; }
+      // Auto-insert new (non-already-contacted) emails straight into the textarea.
+      const newEmails = r.valid.filter((v) => !r.alreadyContacted.includes(v.email));
+      const lines = newEmails.map((v) => [v.email, v.name ?? '', v.company ?? ''].join(', ').replace(/(, )+$/, ''));
+      if (lines.length > 0) {
+        setText((t) => (t.trim() ? t.trimEnd() + '\n' : '') + lines.join('\n'));
+        setOk(`Added ${lines.length} email${lines.length === 1 ? '' : 's'} from the image.${r.alreadyContacted.length ? ` (${r.alreadyContacted.length} already contacted, skipped)` : ''}`);
+      } else {
+        setOk(`${r.valid.length} email${r.valid.length === 1 ? '' : 's'} found but all were already contacted recently.`);
+      }
+      // Show the found panel only when some were already contacted so the user can optionally add those too.
+      if (r.alreadyContacted.length > 0) { setFound(r); setPick(new Set()); } else { setFound(null); setShot(null); }
     } catch (e) { setErr(e instanceof Error && !('status' in e) ? e.message : errText(e)); } finally { setBusy(''); }
   }
   function addPicked() {
@@ -118,7 +165,20 @@ export default function Outreach() {
     try { setPrev(await api('/outreach/preview', { body: { subject, body, resumeId: resumeId || undefined } })); } catch (e) { setErr(errText(e)); } finally { setBusy(''); }
   }
   async function create(start: boolean) {
-    if (start && !window.confirm(`Send ${n} emails one by one from your Gmail, about ${minutes} minutes in total, each with your resume attached?`)) return;
+    if (start) {
+      setConfirm({
+        icon: '📨',
+        title: 'Start campaign?',
+        message: `Send ${n} email${n === 1 ? '' : 's'} one by one from your Gmail — about ${minutes} minute${minutes === 1 ? '' : 's'} in total, each with your resume attached.`,
+        confirmLabel: 'Yes, start sending',
+        confirmTone: 'primary',
+        onConfirm: () => { setConfirm(null); _create(true); },
+      });
+      return;
+    }
+    _create(false);
+  }
+  async function _create(start: boolean) {
     setBusy(start ? 'start' : 'save'); setErr(''); setOk('');
     try {
       const r = await api('/outreach/campaigns', { body: { name, subject, body, resumeId, includeExtraFiles: extra, gapSec: gap, recipientsText: text, start } });
@@ -128,7 +188,20 @@ export default function Outreach() {
     } catch (e) { setErr(errText(e)); } finally { setBusy(''); }
   }
   async function act(id: string, what: 'start' | 'pause' | 'cancel' | 'retry') {
-    if (what === 'cancel' && !window.confirm('Cancel this campaign? Emails already sent stay sent; the rest will not be sent.')) return;
+    if (what === 'cancel') {
+      setConfirm({
+        icon: '🛑',
+        title: 'Cancel campaign?',
+        message: 'Emails already sent stay sent. The remaining queued emails will not be sent.',
+        confirmLabel: 'Yes, cancel it',
+        confirmTone: 'danger',
+        onConfirm: () => { setConfirm(null); _act(id, 'cancel'); },
+      });
+      return;
+    }
+    _act(id, what);
+  }
+  async function _act(id: string, what: 'start' | 'pause' | 'cancel' | 'retry') {
     setErr(''); try { await api(`/outreach/campaigns/${id}/${what}`, { body: {} }); await loadCamps(); setLiveId(id); await loadLive(id); } catch (e) { setErr(errText(e)); }
   }
   function onFile(f?: File) { if (!f) return; const r = new FileReader(); r.onload = () => setText((t) => (t ? t + '\n' : '') + String(r.result ?? '')); r.readAsText(f); }
@@ -174,15 +247,16 @@ export default function Outreach() {
             {busy === 'img' && <span className="ou-scan" />}
           </div>
 
-          {found && found.valid.length > 0 && (
+          {/* Only shown when some emails were already contacted — lets user optionally add them too */}
+          {found && found.alreadyContacted.length > 0 && (
             <div className="ou-found">
-              <div className="ou-found-h"><b>AI found {found.valid.length} email{found.valid.length > 1 ? 's' : ''}</b><span className="sp" />
-                <button type="button" onClick={() => setPick(new Set(found.valid.map((v) => v.email)))}>All</button><button type="button" onClick={() => setPick(new Set())}>None</button></div>
-              <div className="ou-found-l">{found.valid.map((v, i) => {
-                const on = pick.has(v.email), was = found.alreadyContacted.includes(v.email);
-                return <label key={v.email} className={on ? 'on' : ''} style={{ animationDelay: `${Math.min(i, 20) * 40}ms` }}><input type="checkbox" checked={on} onChange={() => setPick((s) => { const x = new Set(s); on ? x.delete(v.email) : x.add(v.email); return x; })} /><span>{v.name ? `${v.name} · ` : ''}{v.email}</span>{was && <em>emailed</em>}</label>;
+              <div className="ou-found-h"><b>Already contacted ({found.alreadyContacted.length})</b><span className="sp" />
+                <button type="button" onClick={() => setPick(new Set(found.alreadyContacted))}>All</button><button type="button" onClick={() => setPick(new Set())}>None</button></div>
+              <div className="ou-found-l">{found.valid.filter((v) => found.alreadyContacted.includes(v.email)).map((v, i) => {
+                const on = pick.has(v.email);
+                return <label key={v.email} className={on ? 'on' : ''} style={{ animationDelay: `${Math.min(i, 20) * 40}ms` }}><input type="checkbox" checked={on} onChange={() => setPick((s) => { const x = new Set(s); on ? x.delete(v.email) : x.add(v.email); return x; })} /><span>{v.name ? `${v.name} · ` : ''}{v.email}</span><em>emailed</em></label>;
               })}</div>
-              <div className="ou-found-f"><span className="faint">Check each address before adding. AI can misread blurry text.</span><button type="button" className="btn sm primary" onClick={addPicked} disabled={pick.size === 0}>Add {pick.size} selected</button></div>
+              <div className="ou-found-f"><span className="faint">These were recently contacted. Add anyway?</span><button type="button" className="btn sm primary" onClick={addPicked} disabled={pick.size === 0}>Add {pick.size} selected</button></div>
             </div>
           )}
 
@@ -310,6 +384,17 @@ export default function Outreach() {
             <iframe title="Email preview" sandbox="" srcDoc={prev.html} />
           </div>
         </div>
+      )}
+      {confirm && (
+        <ConfirmModal
+          icon={confirm.icon}
+          title={confirm.title}
+          message={confirm.message}
+          confirmLabel={confirm.confirmLabel}
+          confirmTone={confirm.confirmTone}
+          onConfirm={confirm.onConfirm}
+          onCancel={() => setConfirm(null)}
+        />
       )}
     </div>
   );

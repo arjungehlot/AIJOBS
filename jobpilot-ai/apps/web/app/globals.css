@@ -899,3 +899,13 @@ fieldset { border: 0; padding: 0; margin: 0; }
 .brand-pill { display: inline-flex; align-self: flex-start; padding: 9px 16px; border-radius: 15px; background: #fff; box-shadow: 0 10px 26px -12px rgba(15,23,42,.45); } .brand-pill .brand { padding: 0; }
 .auth-hero .brand-pill .brand-full { height: 30px !important; }
 .ou-logo { background: none !important; border: 0 !important; width: auto !important; height: auto !important; } .ou-logo img { border-radius: 10px; box-shadow: 0 6px 16px -6px rgba(0,0,0,.5); }
+
+/* ── Confirm modal ─────────────────────────────────────────────── */
+.ou-confirm-box { background: var(--surface, #fff); border-radius: 20px; padding: 36px 32px 28px; width: min(420px, 92vw); box-shadow: 0 32px 80px rgba(0,0,0,.35), 0 0 0 1px rgba(255,255,255,.08); animation: ou-in .22s cubic-bezier(.34,1.56,.64,1); text-align: center; }
+.ou-confirm-icon { font-size: 44px; line-height: 1; margin-bottom: 14px; }
+.ou-confirm-title { font-size: 20px; font-weight: 700; color: var(--text, #0f172a); margin: 0 0 10px; }
+.ou-confirm-msg { font-size: 14px; color: var(--muted, #64748b); line-height: 1.6; margin: 0 0 28px; }
+.ou-confirm-btns { display: flex; gap: 10px; justify-content: center; }
+.ou-confirm-btns .btn { min-width: 120px; justify-content: center; font-size: 14px; padding: 10px 22px; border-radius: 10px; }
+.ou-btn-danger { background: #ef4444; color: #fff; border: none; cursor: pointer; border-radius: 10px; padding: 10px 22px; font-size: 14px; font-weight: 600; min-width: 120px; transition: background .15s; }
+.ou-btn-danger:hover { background: #dc2626; }
