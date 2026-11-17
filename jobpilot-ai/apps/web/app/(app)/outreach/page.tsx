@@ -25,17 +25,6 @@ function ConfirmModal({ icon, title, message, confirmLabel, confirmTone, onConfi
           <button type="button" className={`btn ${confirmTone === 'danger' ? 'ou-btn-danger' : 'primary'}`} onClick={onConfirm} autoFocus>{confirmLabel}</button>
         </div>
       </div>
-      {confirm && (
-        <ConfirmModal
-          icon={confirm.icon}
-          title={confirm.title}
-          message={confirm.message}
-          confirmLabel={confirm.confirmLabel}
-          confirmTone={confirm.confirmTone}
-          onConfirm={confirm.onConfirm}
-          onCancel={() => setConfirm(null)}
-        />
-      )}
     </div>
   );
 }
