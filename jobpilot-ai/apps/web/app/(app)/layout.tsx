@@ -51,6 +51,23 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [pal, setPal] = useState(false);
   const [col, setCol] = useState(false);
+  const [navOpen, setNavOpen] = useState(false); // mobile drawer
+  useEffect(() => { setNavOpen(false); }, [path]);
+  useEffect(() => {
+    document.body.style.overflow = navOpen ? 'hidden' : '';
+    if (!navOpen) return;
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setNavOpen(false); };
+    document.addEventListener('keydown', esc); return () => { document.removeEventListener('keydown', esc); document.body.style.overflow = ''; };
+  }, [navOpen]);
+  // Label every table cell with its column header so tables can reflow into stacked cards on phones.
+  useEffect(() => {
+    const label = () => document.querySelectorAll('table').forEach((t) => {
+      const heads = Array.from(t.querySelectorAll('thead th')).map((h) => (h.textContent ?? '').trim());
+      t.querySelectorAll('tbody tr').forEach((r) => Array.from(r.children).forEach((c, i) => { if (heads[i] && c.getAttribute('data-label') !== heads[i]) c.setAttribute('data-label', heads[i]); }));
+    });
+    label(); const mo = new MutationObserver(label); mo.observe(document.body, { childList: true, subtree: true });
+    return () => mo.disconnect();
+  }, []);
   useEffect(() => { try { setCol(localStorage.getItem('jp.side') === '1'); } catch { /* storage unavailable */ } }, []);
   const toggle = () => setCol((v) => { try { localStorage.setItem('jp.side', v ? '0' : '1'); } catch { /* ignore */ } return !v; });
   const [menu, setMenu] = useState(false); const menuRef = useRef<HTMLDivElement>(null);
@@ -75,8 +92,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const initials = (me?.name ?? '?').split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
   return (
     <div className="shell">
-      <nav className={`side ${col ? 'col' : ''}`} aria-label="Main">
-        <div className="side-top"><Logo /><button className="collapse" onClick={toggle} aria-label={col ? 'Expand sidebar' : 'Collapse sidebar'} aria-expanded={!col} title={col ? 'Expand sidebar' : 'Collapse sidebar'}>{col ? '»' : '«'}</button></div>
+      <div className={`side-bg ${navOpen ? 'open' : ''}`} onClick={() => setNavOpen(false)} aria-hidden="true" />
+      <nav id="main-nav" className={`side ${col ? 'col' : ''} ${navOpen ? 'open' : ''}`} aria-label="Main">
+        <div className="side-top"><Logo /><button className="side-x" onClick={() => setNavOpen(false)} aria-label="Close menu">✕</button><button className="collapse" onClick={toggle} aria-label={col ? 'Expand sidebar' : 'Collapse sidebar'} aria-expanded={!col} title={col ? 'Expand sidebar' : 'Collapse sidebar'}>{col ? '»' : '«'}</button></div>
         {(me?.role === 'super_admin' ? [ADMIN, ...GROUPS] : GROUPS).map((g) => (
           <div key={g.h}>
             <div className="nav-h">{g.h}</div><div className="nav-rule" />
@@ -97,10 +115,11 @@ export default function AppShell({ children }: { children: ReactNode }) {
       </nav>
       <div className="content">
         <header className="topbar">
-          <b>{TITLES[path] ?? ''}</b>
+          <button className="menu-btn" onClick={() => setNavOpen(true)} aria-label="Open menu" aria-controls="main-nav" aria-expanded={navOpen}><span /><span /><span /></button>
+          <b className="tb-title">{TITLES[path] ?? ''}</b>
           <span className="sp" />
-          <button className="btn sm" onClick={() => setPal(true)} aria-label="Open command palette"><Icon name="search" size={13} />Search <span className="faint">Ctrl K</span></button>
-          <Link href="/profiles" className="btn sm"><Icon name="user" size={13} />Profiles</Link>
+          <button className="btn sm" onClick={() => setPal(true)} aria-label="Open command palette"><Icon name="search" size={13} /><span className="tb-lbl">Search</span> <span className="faint tb-kbd">Ctrl K</span></button>
+          <Link href="/profiles" className="btn sm"><Icon name="user" size={13} /><span className="tb-lbl">Profiles</span></Link>
           <div className="pm" ref={menuRef}>
             <button className="pm-btn" onClick={() => setMenu((v) => !v)} aria-haspopup="menu" aria-expanded={menu} aria-label="Account menu" title={me?.name ?? 'Account'}>
               {me?.image ? <img src={me.image} alt="" referrerPolicy="no-referrer" /> : <span>{initials}</span>}

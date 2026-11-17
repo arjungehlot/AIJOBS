@@ -78,8 +78,8 @@ export default function Profiles() {
                   <div className="az-tags">{p.skills?.length ? p.skills.map((t: string) => <span key={t} className="tag req">{t}</span>) : <span className="faint">No skills listed</span>}</div>
                 </div>
                 <div className="pg-actions">
-                  <button className="btn sm" onClick={() => { setEdit(p); setOk(''); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>✎ Edit</button>
-                  <button className="btn sm" style={{ color: 'var(--bad)' }} onClick={() => remove(p)} aria-label={`Delete ${p.name}`}>🗑 Delete</button>
+                  <button className="btn sm" onClick={() => { setEdit(p); setOk(''); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>✎<span className="bt"> Edit</span></button>
+                  <button className="btn sm" style={{ color: 'var(--bad)' }} onClick={() => remove(p)} aria-label={`Delete ${p.name}`}>🗑<span className="bt"> Delete</span></button>
                 </div>
               </article>
             ))

@@ -1,8 +1,9 @@
-/** Pure helpers for HR outreach: reading a pasted list of recipients, filling the template, and building the HTML email. */
+/** Pure helpers for HR outreach: reading a pasted list of recipients (emails and/or phone numbers), filling the template, and building the HTML email. */
 // Same rule as gmail-format's EMAIL_RE (kept local so this file has no imports and stays testable on its own).
 const EMAIL_RE = /^[^\s@<>",;]+@[^\s@<>",;]+\.[^\s@<>",;]+$/;
 
-export interface Recipient { email: string; name?: string; company?: string }
+/** `phone` is international digits. A phone-only person has a placeholder `email` (see isPhoneOnly). */
+export interface Recipient { email: string; phone?: string; name?: string; company?: string }
 export interface ParseResult { valid: Recipient[]; invalid: { line: string; reason: string }[]; duplicates: number; truncated: number }
 
 export const MAX_RECIPIENTS = 100;
@@ -14,10 +15,10 @@ const tidy = (s: string) => s.replace(/["']/g, '').replace(/\s+/g, ' ').trim();
  * Accepts one recipient per line (or separated by ; ,): `hr@acme.com`, `Priya Shah <priya@acme.com>`,
  * or CSV-style `priya@acme.com, Priya Shah, Acme`. A header row and blank lines are ignored.
  */
-export function parseRecipients(text: string, opts: { selfEmail?: string; max?: number } = {}): ParseResult {
+export function parseRecipients(text: string, opts: { selfEmail?: string; max?: number; defaultCc?: string } = {}): ParseResult {
   const max = opts.max ?? MAX_RECIPIENTS; const self = opts.selfEmail?.toLowerCase();
   const out: ParseResult = { valid: [], invalid: [], duplicates: 0, truncated: 0 };
-  const seen = new Set<string>();
+  const seen = new Set<string>(); const seenPhone = new Set<string>(); const cc = opts.defaultCc ?? '91';
   // Several bare addresses on one line ("a@x.com; b@y.com") become separate rows; a line with names/company stays one row.
   const lines: string[] = [];
   for (const raw of text.split(/\r?\n/)) {
@@ -26,21 +27,24 @@ export function parseRecipients(text: string, opts: { selfEmail?: string; max?: 
     if (bare.length > 1 && bare.every((t) => EMAIL_RE.test(t.replace(/,$/, '')))) bare.forEach((t) => lines.push(t.replace(/,$/, ''))); else lines.push(l);
   }
   for (const line of lines) {
-    if (/^\s*(e-?mail|email address)\b/i.test(line) && !ANY_EMAIL.test(line)) continue; // header row
+    if (/^\s*(e-?mail|email address|phone|mobile)\b/i.test(line) && !ANY_EMAIL.test(line) && !extractPhone(line, cc).phone) continue; // header row
     const m = line.match(ANY_EMAIL);
-    if (!m) { out.invalid.push({ line: line.slice(0, 80), reason: 'No email address found' }); continue; }
-    const email = m[0].toLowerCase().replace(/[.,;:]+$/, '');
-    if (!EMAIL_RE.test(email)) { out.invalid.push({ line: line.slice(0, 80), reason: 'Not a valid email address' }); continue; }
-    if (NOREPLY.test(email)) { out.invalid.push({ line: email, reason: 'No-reply address' }); continue; }
-    if (self && email === self) { out.invalid.push({ line: email, reason: 'This is your own address' }); continue; }
-    if (seen.has(email)) { out.duplicates++; continue; }
-    seen.add(email);
-    // Remaining text: either "Name <email>" or the other CSV cells.
-    const rest = line.replace(m[0], '').replace(/[<>]/g, ' ');
-    const cells = rest.split(/[,;\t|]/).map(tidy).filter(Boolean);
-    const [name, company] = cells;
+    const email = m ? m[0].toLowerCase().replace(/[.,;:]+$/, '') : '';
+    const { phone, rest: afterPhone } = extractPhone(m ? line.replace(m[0], ' ') : line, cc);
+    if (!email && !phone) { out.invalid.push({ line: line.slice(0, 80), reason: 'No email address or phone number found' }); continue; }
+    if (email) {
+      if (!EMAIL_RE.test(email)) { out.invalid.push({ line: line.slice(0, 80), reason: 'Not a valid email address' }); continue; }
+      if (NOREPLY.test(email)) { out.invalid.push({ line: email, reason: 'No-reply address' }); continue; }
+      if (self && email === self) { out.invalid.push({ line: email, reason: 'This is your own address' }); continue; }
+      if (seen.has(email)) { out.duplicates++; continue; }
+    } else if (phone && seenPhone.has(phone)) { out.duplicates++; continue; }
+    // Remaining text: either "Name <email>" or the other CSV cells. Long sentences (a pasted job post) are not names.
+    const cells = afterPhone.replace(/[<>]/g, ' ').split(/[,;\t|]/).map(tidy).filter(Boolean);
+    const okName = (c?: string, words = 4) => (c && c.length <= 48 && c.split(' ').length <= words && !/\d/.test(c) && !/^(call|contact|phone|mobile|mob|tel|whatsapp|email|e-mail|hr|reach|apply|send|resume|cv)\b[:\s]*$/i.test(c) ? c : undefined);
+    const name = okName(cells[0]); const company = okName(cells[1], 6);
     if (out.valid.length >= max) { out.truncated++; continue; }
-    out.valid.push({ email, ...(name ? { name: name.slice(0, 80) } : {}), ...(company ? { company: company.slice(0, 80) } : {}) });
+    if (email) seen.add(email); if (phone) seenPhone.add(phone);
+    out.valid.push({ email: email || phoneOnlyEmail(phone!), ...(phone ? { phone } : {}), ...(name ? { name: name.slice(0, 80) } : {}), ...(company ? { company: company.slice(0, 80) } : {}) });
   }
   return out;
 }
@@ -104,4 +108,58 @@ export function starterTemplate(o: { name: string; role?: string; skills?: strin
     subject: `${o.role?.trim() ? `${o.role.trim()} candidate` : 'Job enquiry'} — ${o.name}`,
     body: `Hello {{name}},\n\nI hope you are doing well. I am ${o.name}, a ${o.role?.trim() || 'professional'}${exp}${skills ? `, working with ${skills}` : ''}. I am writing to ask whether {{company}} has openings for ${role}.\n\nMy resume is attached so you can see my projects and experience. If there is a suitable position now or in the near future, I would be glad to talk.\n\nThank you for your time.`,
   };
+}
+
+/* ---------- WhatsApp helpers (kept here so this file stays import-free and testable on its own) ---------- */
+
+/** A recipient with only a phone number gets this placeholder in the (required, unique) email field. */
+export const PHONE_ONLY_DOMAIN = 'phone.jobpilot.invalid';
+export const isPhoneOnly = (email: string) => email.endsWith(`@${PHONE_ONLY_DOMAIN}`);
+export const phoneOnlyEmail = (phone: string) => `${phone}@${PHONE_ONLY_DOMAIN}`;
+
+/**
+ * International digits without "+", or null when it does not look like a phone number.
+ * 10 digits starting 6-9 are Indian mobiles (default country code is added); 11 digits with a leading 0 drop the 0;
+ * anything longer is assumed to already carry its country code.
+ */
+export function normalizePhone(raw: string, cc = '91'): string | null {
+  let d = raw.replace(/[^\d]/g, ''); if (!d) return null;
+  if (raw.trim().startsWith('00') || d.startsWith('00')) d = d.replace(/^00/, '');
+  else if (d.length === 11 && d.startsWith('0')) d = d.slice(1);
+  if (d.length === 10) { if (cc === '91' && !/^[6-9]/.test(d)) return null; d = cc + d; }
+  if (d.length < 11 || d.length > 15) return null;
+  return d;
+}
+
+const PHONE_RE = /(?:\+|00)?\d[\d\s().-]{7,18}\d/g;
+/** Finds the first usable phone number in free text and returns it with that text removed. */
+export function extractPhone(text: string, cc = '91'): { phone?: string; rest: string } {
+  for (const m of text.matchAll(PHONE_RE)) {
+    const p = normalizePhone(m[0], cc);
+    if (p) return { phone: p, rest: text.replace(m[0], ' ') };
+  }
+  return { rest: text };
+}
+
+export const urlsIn = (s: string) => Array.from(new Set((s.match(/\bhttps?:\/\/[^\s<>"]+[^\s<>".,;:!?)]/g) ?? []))).slice(0, 3);
+
+export interface WaTextOpts { recipientName?: string; company?: string; senderName: string; role?: string; skills?: string[]; links?: string[]; custom?: string }
+/** Fills {{name}}, {{first_name}}, {{company}} (with polite fallbacks). */
+export function fillWa(t: string, o: { name?: string; company?: string }) {
+  const name = o.name?.trim() || 'Hiring Team'; const first = o.name?.trim() ? o.name.trim().split(/\s+/)[0] : 'there'; const company = o.company?.trim() || 'your company';
+  return t.replace(/\{\{\s*(name|first_name|company)\s*\}\}/gi, (_m, k: string) => ({ name, first_name: first, company } as Record<string, string>)[k.toLowerCase()]);
+}
+
+/** A tidy WhatsApp message (bold with *…*). Uses only facts passed in, never invents any. Kept under the 1,024-character caption limit. */
+export function renderWhatsAppText(o: WaTextOpts): string {
+  const first = o.recipientName?.trim() ? o.recipientName.trim().split(/\s+/)[0] : 'there';
+  const company = o.company?.trim() || 'your company';
+  const middle = o.custom?.trim() || `I'm *${o.senderName}*${o.role ? `, a ${o.role}` : ''}. I'm writing to ask whether *${company}* has any openings${o.role ? ` for *${o.role}*` : ''}.`;
+  const lines = [`👋 Hello ${first},`, '', middle, '', '📄 *My resume is attached* — it covers my projects and experience.'];
+  const skills = (o.skills ?? []).filter(Boolean).slice(0, 6);
+  if (skills.length) lines.push(`🛠 *Skills:* ${skills.join(' · ')}`);
+  for (const l of (o.links ?? []).slice(0, 3)) lines.push(`🔗 ${l}`);
+  lines.push('', 'I would be glad to talk if there is a fit. Thank you for your time 🙏', `*${o.senderName}*`);
+  const out = lines.join('\n');
+  return out.length <= 1000 ? out : `${out.slice(0, 996).trimEnd()}…`;
 }

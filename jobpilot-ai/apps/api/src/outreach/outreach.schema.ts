@@ -17,6 +17,10 @@ export class OutreachCampaign {
   @Prop() startedAt?: Date;
   @Prop() finishedAt?: Date;
   @Prop() note?: string;
+  /** Also send each person a WhatsApp message with the resume attached (needs the WhatsApp API keys). */
+  @Prop({ default: false }) whatsapp: boolean;
+  /** Optional custom middle part of the WhatsApp message; {{name}} {{first_name}} {{company}} are filled. */
+  @Prop({ maxlength: 1000 }) waText?: string;
 }
 export const OutreachCampaignSchema = SchemaFactory.createForClass(OutreachCampaign);
 OutreachCampaignSchema.index({ status: 1, nextAt: 1 });
@@ -35,6 +39,12 @@ export class OutreachRecipient {
   @Prop() sentAt?: Date;
   @Prop() messageId?: string;
   @Prop() threadId?: string;
+  /** International digits, no +. */
+  @Prop() phone?: string;
+  @Prop({ enum: ['sent', 'failed'] }) waStatus?: string;
+  @Prop() waError?: string;
+  @Prop() waSentAt?: Date;
+  @Prop() waMessageId?: string;
 }
 export const OutreachRecipientSchema = SchemaFactory.createForClass(OutreachRecipient);
 OutreachRecipientSchema.index({ campaignId: 1, email: 1 }, { unique: true });

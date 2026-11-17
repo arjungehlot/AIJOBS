@@ -51,5 +51,16 @@ export const env = {
   get superAdminEmail() { return (process.env.SUPER_ADMIN_EMAIL ?? '').trim().toLowerCase(); },
   get superAdminPassword() { return process.env.SUPER_ADMIN_PASSWORD ?? ''; },
   get superAdminName() { return (process.env.SUPER_ADMIN_NAME ?? 'Super Admin').trim() || 'Super Admin'; },
+  /** WhatsApp Business Cloud API (Meta). Several common variable names are accepted. */
+  get waToken() { return (process.env.WHATSAPP_ACCESS_TOKEN ?? process.env.WHATSAPP_TOKEN ?? process.env.WHATSAPP_API_KEY ?? '').trim(); },
+  get waPhoneId() { return (process.env.WHATSAPP_PHONE_NUMBER_ID ?? process.env.WHATSAPP_PHONE_ID ?? '').trim(); },
+  get waVersion() { return (process.env.WHATSAPP_API_VERSION ?? 'v21.0').trim(); },
+  /** An approved message template lets you start a chat with people who have not messaged you (required by WhatsApp). */
+  get waTemplate() { return (process.env.WHATSAPP_TEMPLATE_NAME ?? '').trim(); },
+  get waTemplateLang() { return (process.env.WHATSAPP_TEMPLATE_LANG ?? 'en').trim(); },
+  get waTemplateDocHeader() { return (process.env.WHATSAPP_TEMPLATE_HEADER_DOCUMENT ?? 'true') !== 'false'; },
+  get waTemplateParams() { return Math.max(0, Math.min(6, Number(process.env.WHATSAPP_TEMPLATE_PARAMS ?? 3) || 0)); },
+  get waDefaultCc() { return (process.env.WHATSAPP_DEFAULT_COUNTRY_CODE ?? '91').replace(/\D/g, '') || '91'; },
+  get waConfigured() { return !!(this.waToken && this.waPhoneId); },
   get mailProvider() { return process.env.MAIL_PROVIDER ?? 'mock'; },
 };

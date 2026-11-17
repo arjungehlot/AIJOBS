@@ -24,7 +24,7 @@ export interface AiProvider {
   /** Rates how well each posting fits the candidate (0-100) with a one-line reason. Null when no real AI is configured. */
   rankJobs?(ctx: { titles: string[]; skills: string[]; yearsExperience?: number }, jobs: { id: string; title: string; company: string; location?: string; text: string }[], opts?: AiOpts): Promise<{ id: string; fit: number; reason: string }[] | null>;
   /** Reads email addresses (and a visible name/company beside each) out of a screenshot or photo. Returns null when no real AI is configured. */
-  extractEmails?(image: { mime: 'image/png' | 'image/jpeg' | 'image/webp'; base64: string }, opts?: AiOpts): Promise<{ email: string; name?: string; company?: string }[] | null>;
+  extractEmails?(image: { mime: 'image/png' | 'image/jpeg' | 'image/webp'; base64: string }, opts?: AiOpts): Promise<{ email?: string; phone?: string; name?: string; company?: string }[] | null>;
   /** Reads a resume (PDF or text) into plain text plus a few facts. Never adds anything that is not in the document. */
   parseResume(input: ResumeInput, opts?: AiOpts): Promise<ParsedResume>;
   /** Models the configured key can use. May be a built-in list when the provider cannot be asked. */

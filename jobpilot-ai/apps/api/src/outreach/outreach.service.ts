@@ -7,7 +7,8 @@ import { AI_PROVIDER, AiProvider } from '../ai/ai.provider';
 import { AiSettingsService } from '../ai/ai-settings.service';
 import { AuditService } from '../audit/audit.service';
 import { env } from '../common/env';
-import { MAX_RECIPIENTS, fillTemplate, nextGapMs, parseRecipients, renderOutreachHtml, renderOutreachText, starterTemplate } from '../domain/outreach';
+import { MAX_RECIPIENTS, fillTemplate, fillWa, isPhoneOnly, nextGapMs, parseRecipients, renderOutreachHtml, renderOutreachText, renderWhatsAppText, starterTemplate, urlsIn } from '../domain/outreach';
+import { WhatsappError, WhatsappService } from '../whatsapp/whatsapp.service';
 import { MAIL_PROVIDER, MailOutcomeUnknownError, MailProvider, MailRejectedError } from '../mail/mail.provider';
 import { GmailService } from '../mail/gmail.service';
 import { ResumesService } from '../resumes/resumes.service';
@@ -16,7 +17,7 @@ import { OutreachCampaign, OutreachRecipient } from './outreach.schema';
 
 const oid = z.string().regex(/^[a-f0-9]{24}$/i);
 export const ParseDto = z.object({ text: z.string().max(60_000) });
-export const PreviewDto = z.object({ subject: z.string().max(300), body: z.string().max(8000), resumeId: oid.optional(), name: z.string().max(80).optional(), company: z.string().max(80).optional() });
+export const PreviewDto = z.object({ subject: z.string().max(300), body: z.string().max(8000), resumeId: oid.optional(), name: z.string().max(80).optional(), company: z.string().max(80).optional(), waText: z.string().max(1000).optional() });
 export const DraftDto = z.object({ role: z.string().trim().max(120).optional(), tone: z.enum(['professional', 'concise', 'friendly', 'technical']).default('professional') });
 export const ImageDto = z.object({ image: z.string().max(11_000_000).regex(/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/, 'Use a PNG, JPEG or WebP image') });
 export const EnhanceDto = z.object({ body: z.string().trim().min(20).max(8000), action: z.enum(['improve', 'shorter', 'friendlier', 'formal', 'confident', 'grammar']) });
@@ -32,6 +33,7 @@ export const CampaignDto = z.object({
   name: z.string().trim().min(1).max(120), subject: z.string().trim().min(3).max(300), body: z.string().trim().min(20).max(8000),
   resumeId: oid, includeExtraFiles: z.boolean().default(true), gapSec: z.number().int().min(10).max(600).default(45),
   recipientsText: z.string().max(60_000), start: z.boolean().default(false),
+  whatsapp: z.boolean().default(false), waText: z.string().trim().max(1000).optional(),
 });
 
 const DAY = 24 * 3600_000;
@@ -49,19 +51,19 @@ export class OutreachService {
     @InjectModel(User.name) private readonly users: Model<User>,
     @Inject(MAIL_PROVIDER) private readonly mail: MailProvider,
     @Inject(AI_PROVIDER) private readonly ai: AiProvider,
-    private readonly resumes: ResumesService, private readonly settings: AiSettingsService, private readonly audit: AuditService, private readonly gmail: GmailService,
+    private readonly resumes: ResumesService, private readonly settings: AiSettingsService, private readonly audit: AuditService, private readonly gmail: GmailService, private readonly wa: WhatsappService,
   ) {}
 
   // ---- info ----
   async limits(userId: string) {
     const sent = await this.sentSince(userId, new Date(Date.now() - DAY));
-    return { dailyLimit: env.outreachDailyLimit, sentLast24h: sent, maxRecipients: MAX_RECIPIENTS, minGapSec: 10, mailMode: env.mailProvider, gmailConnected: await this.gmail.hasAccount(userId) };
+    return { dailyLimit: env.outreachDailyLimit, sentLast24h: sent, maxRecipients: MAX_RECIPIENTS, minGapSec: 10, mailMode: env.mailProvider, gmailConnected: await this.gmail.hasAccount(userId), whatsapp: this.wa.status() };
   }
   private sentSince(userId: string, since: Date) { return this.recs.countDocuments({ userId, status: 'sent', sentAt: { $gte: since } }); }
 
   async parse(userId: string, text: string) {
     const u = await this.users.findById(userId).lean();
-    const r = parseRecipients(text, { selfEmail: u?.email });
+    const r = parseRecipients(text, { selfEmail: u?.email, defaultCc: env.waDefaultCc });
     const prior = r.valid.length ? await this.recs.find({ userId, email: { $in: r.valid.map((v) => v.email) }, status: 'sent', sentAt: { $gte: new Date(Date.now() - SKIP_WINDOW) } }).select('email').lean() : [];
     const already = new Set(prior.map((p) => p.email));
     return { ...r, alreadyContacted: r.valid.filter((v) => already.has(v.email)).map((v) => v.email) };
@@ -91,8 +93,8 @@ export class OutreachService {
     const found = await this.ai.extractEmails({ mime: m[1] as any, base64: m[2] });
     if (!found) throw new BadRequestException('Reading images needs the Gemini AI provider. Set GEMINI_API_KEY on the server.');
     const u = await this.users.findById(userId).lean();
-    const text = found.map((f) => [f.email, f.name ?? '', f.company ?? ''].map((x) => x.replace(/[,\n]/g, ' ')).join(', ').replace(/(, )+$/, '')).join('\n');
-    const r = parseRecipients(text, { selfEmail: u?.email, max: MAX_RECIPIENTS });
+    const text = found.map((f) => [f.email ?? '', f.phone ?? '', f.name ?? '', f.company ?? ''].map((x) => x.replace(/[,\n]/g, ' ').trim()).filter(Boolean).join(', ')).filter(Boolean).join('\n');
+    const r = parseRecipients(text, { selfEmail: u?.email, max: MAX_RECIPIENTS, defaultCc: env.waDefaultCc });
     const prior = r.valid.length ? await this.recs.find({ userId, email: { $in: r.valid.map((v) => v.email) }, status: 'sent', sentAt: { $gte: new Date(Date.now() - 60 * 86_400_000) } }).select('email').lean() : [];
     const already = new Set(prior.map((p) => p.email));
     return { ...r, alreadyContacted: r.valid.filter((v) => already.has(v.email)).map((v) => v.email), seen: found.length };
@@ -109,7 +111,8 @@ export class OutreachService {
     const { u, resume, signature, names } = await this.context(userId, dto.resumeId, true);
     const r = { email: 'hr@example.com', name: dto.name || 'Priya Sharma', company: dto.company || 'Acme Technologies' };
     const body = fillTemplate(dto.body, r);
-    return { to: r.email, subject: fillTemplate(dto.subject, r), html: renderOutreachHtml({ body, signature, senderName: u.name, attachmentNames: names, preheader: body.slice(0, 90) }), text: renderOutreachText(body, signature, u.name), resumeName: resume?.filename ?? null };
+    const waText = renderWhatsAppText({ recipientName: r.name, company: r.company, senderName: u.name, skills: (await this.resumes.pick(userId, dto.resumeId))?.skills, links: urlsIn(signature), custom: dto.waText ? fillWa(dto.waText, r) : undefined });
+    return { whatsapp: waText, to: r.email, subject: fillTemplate(dto.subject, r), html: renderOutreachHtml({ body, signature, senderName: u.name, attachmentNames: names, preheader: body.slice(0, 90) }), text: renderOutreachText(body, signature, u.name), resumeName: resume?.filename ?? null };
   }
 
   private async context(userId: string, resumeId: string | undefined, soft = false) {
@@ -126,13 +129,17 @@ export class OutreachService {
   async create(userId: string, dto: z.infer<typeof CampaignDto>) {
     await this.context(userId, dto.resumeId); // resume must exist with a file
     const u = await this.users.findById(userId).lean();
-    const parsed = parseRecipients(dto.recipientsText, { selfEmail: u?.email });
-    if (!parsed.valid.length) throw new BadRequestException('Add at least one valid HR email address');
-    const camp = await this.camps.create({ userId, name: dto.name, subject: dto.subject, body: dto.body, resumeId: dto.resumeId, includeExtraFiles: dto.includeExtraFiles, gapSec: dto.gapSec, status: 'draft' });
-    await this.recs.insertMany(parsed.valid.map((r, i) => ({ campaignId: camp._id, userId, email: r.email, name: r.name, company: r.company, order: i, key: randomBytes(16).toString('hex') })));
-    await this.audit.record({ userId, actor: 'user', action: 'outreach.created', entityType: 'outreach', entityId: String(camp._id), result: 'success', meta: { recipients: parsed.valid.length } });
+    const parsed = parseRecipients(dto.recipientsText, { selfEmail: u?.email, defaultCc: env.waDefaultCc });
+    if (dto.whatsapp && !this.wa.configured) throw new BadRequestException('WhatsApp sending is not set up on the server yet. Add WHATSAPP_ACCESS_TOKEN and WHATSAPP_PHONE_NUMBER_ID to .env, or turn WhatsApp off.');
+    // Without WhatsApp, people who only have a phone number cannot be reached, so they are left out (and counted).
+    const people = dto.whatsapp ? parsed.valid : parsed.valid.filter((r) => !isPhoneOnly(r.email));
+    const skippedPhoneOnly = parsed.valid.length - people.length;
+    if (!people.length) throw new BadRequestException(skippedPhoneOnly ? 'These contacts only have phone numbers. Turn on “Also send on WhatsApp” to message them.' : 'Add at least one valid HR email address or phone number');
+    const camp = await this.camps.create({ userId, name: dto.name, subject: dto.subject, body: dto.body, resumeId: dto.resumeId, includeExtraFiles: dto.includeExtraFiles, gapSec: dto.gapSec, status: 'draft', whatsapp: dto.whatsapp, waText: dto.waText || undefined });
+    await this.recs.insertMany(people.map((r, i) => ({ campaignId: camp._id, userId, email: r.email, phone: dto.whatsapp ? r.phone : undefined, name: r.name, company: r.company, order: i, key: randomBytes(16).toString('hex') })));
+    await this.audit.record({ userId, actor: 'user', action: 'outreach.created', entityType: 'outreach', entityId: String(camp._id), result: 'success', meta: { recipients: people.length, whatsapp: dto.whatsapp } });
     if (dto.start) await this.start(userId, String(camp._id));
-    return { id: String(camp._id), recipients: parsed.valid.length, skippedInvalid: parsed.invalid.length, duplicates: parsed.duplicates, truncated: parsed.truncated };
+    return { id: String(camp._id), recipients: people.length, withPhone: dto.whatsapp ? people.filter((r) => r.phone).length : 0, skippedPhoneOnly, skippedInvalid: parsed.invalid.length, duplicates: parsed.duplicates, truncated: parsed.truncated };
   }
 
   private async own(userId: string, id: string) {
@@ -142,7 +149,9 @@ export class OutreachService {
   async start(userId: string, id: string) {
     const c = await this.own(userId, id);
     if (['done', 'cancelled'].includes(c.status)) throw new BadRequestException('This campaign has finished. Create a new one.');
-    if (env.mailProvider === 'gmail' && !(await this.gmail.hasAccount(userId))) throw new BadRequestException('Connect your Gmail first (sign in with Google or Email Setup). Emails are sent from your own address.');
+    if (c.whatsapp && !this.wa.configured) throw new BadRequestException('WhatsApp sending is not set up on the server yet (WHATSAPP_ACCESS_TOKEN / WHATSAPP_PHONE_NUMBER_ID).');
+    const needsMail = !!(await this.recs.exists({ campaignId: c._id, status: 'queued', email: { $not: /@phone\.jobpilot\.invalid$/ } }));
+    if (needsMail && env.mailProvider === 'gmail' && !(await this.gmail.hasAccount(userId))) throw new BadRequestException('Connect your Gmail first (sign in with Google or Email Setup). Emails are sent from your own address.');
     await this.context(userId, c.resumeId ? String(c.resumeId) : undefined);
     c.status = 'running'; c.nextAt = new Date(); c.startedAt ??= new Date(); c.note = undefined; await c.save();
     await this.audit.record({ userId, actor: 'user', action: 'outreach.started', entityType: 'outreach', entityId: id, result: 'success' });
@@ -174,8 +183,8 @@ export class OutreachService {
   }
   async detail(userId: string, id: string) {
     const c = await this.own(userId, id);
-    const recipients = await this.recs.find({ campaignId: c._id }).sort({ order: 1 }).select('email name company status error sentAt order').lean();
-    return { id, name: c.name, subject: c.subject, body: c.body, status: c.status, note: c.note ?? null, nextAt: c.nextAt ?? null, gapSec: c.gapSec, recipients: recipients.map((r) => ({ email: r.email, name: r.name ?? null, company: r.company ?? null, status: r.status, error: r.error ?? null, sentAt: r.sentAt ?? null })) };
+    const recipients = await this.recs.find({ campaignId: c._id }).sort({ order: 1 }).select('email phone name company status error sentAt order waStatus waError').lean();
+    return { id, whatsapp: !!c.whatsapp, name: c.name, subject: c.subject, body: c.body, status: c.status, note: c.note ?? null, nextAt: c.nextAt ?? null, gapSec: c.gapSec, recipients: recipients.map((r) => ({ email: isPhoneOnly(r.email) ? `+${r.phone}` : r.email, phone: r.phone ?? null, phoneOnly: isPhoneOnly(r.email), waStatus: r.waStatus ?? null, waError: r.waError ?? null, name: r.name ?? null, company: r.company ?? null, status: r.status, error: r.error ?? null, sentAt: r.sentAt ?? null })) };
   }
 
   // ---- sender: one email per due campaign per tick ----
@@ -201,12 +210,14 @@ export class OutreachService {
     }
     // Never write twice to the same person within 60 days (any campaign).
     const dup = await this.recs.exists({ userId, email: rec.email, status: 'sent', sentAt: { $gte: new Date(now.getTime() - SKIP_WINDOW) }, _id: { $ne: rec._id } });
-    if (dup) { rec.status = 'skipped'; rec.error = 'Already emailed in the last 60 days'; await rec.save(); c.nextAt = now; await c.save(); return; }
+    if (dup) { rec.status = 'skipped'; rec.error = isPhoneOnly(rec.email) ? 'Already messaged in the last 60 days' : 'Already emailed in the last 60 days'; await rec.save(); c.nextAt = now; await c.save(); return; }
 
     let ctx: Awaited<ReturnType<OutreachService['context']>>;
     try { ctx = await this.context(userId, c.resumeId ? String(c.resumeId) : undefined); }
     catch (e: any) { await this.requeue(rec); c.status = 'paused'; c.note = `Paused: ${String(e?.message ?? 'resume not available')}`; await c.save(); return; }
     const r = { email: rec.email, name: rec.name, company: rec.company };
+    const phoneOnly = isPhoneOnly(rec.email);
+    if (!phoneOnly) {
     const body = fillTemplate(c.body, r); const subject = fillTemplate(c.subject, r);
     const html = renderOutreachHtml({ body, signature: ctx.signature, senderName: ctx.u.name, attachmentNames: ctx.names, preheader: body.slice(0, 90) });
     const text = renderOutreachText(body, ctx.signature, ctx.u.name);
@@ -228,7 +239,38 @@ export class OutreachService {
         return;
       } else { rec.status = 'failed'; rec.error = msg; await rec.save(); await this.audit.record({ userId, actor: 'agent', action: 'outreach.failed', entityType: 'outreach', entityId: String(c._id), result: 'failure', detail: msg, meta: { to: rec.email } }); }
     }
+    }
+    // WhatsApp: same person, same resume, a short message. Independent of the email result.
+    if (c.whatsapp && rec.phone) { if (!(await this.sendWhatsapp(c, rec, ctx, r, phoneOnly))) return; }
+    else if (phoneOnly) { rec.status = 'skipped'; rec.error = 'WhatsApp is off for this campaign'; await rec.save(); }
     c.nextAt = new Date(Date.now() + nextGapMs(c.gapSec)); await c.save();
+  }
+  /** Returns false when the whole campaign was paused (a setup problem, not this person's number). */
+  private async sendWhatsapp(c: any, rec: any, ctx: Awaited<ReturnType<OutreachService['context']>>, r: { name?: string; company?: string }, phoneOnly: boolean): Promise<boolean> {
+    const userId = String(c.userId);
+    try {
+      const meta = await this.resumes.pick(userId, c.resumeId ? String(c.resumeId) : undefined);
+      const text = renderWhatsAppText({ recipientName: r.name, company: r.company, senderName: ctx.u.name, skills: meta?.skills, links: urlsIn(ctx.signature), custom: c.waText ? fillWa(c.waText, r) : undefined });
+      const first = r.name?.trim() ? r.name.trim().split(/\s+/)[0] : 'there';
+      const out = await this.wa.send({ to: rec.phone, text, resume: ctx.resume, vars: [first, ctx.u.name, r.company?.trim() || 'your company', ''] });
+      rec.waStatus = 'sent'; rec.waSentAt = new Date(); rec.waMessageId = out.messageId; rec.waError = undefined;
+      if (phoneOnly) { rec.status = 'sent'; rec.sentAt = new Date(); rec.error = undefined; }
+      await rec.save();
+      await this.audit.record({ userId, actor: 'agent', action: 'outreach.whatsapp_sent', entityType: 'outreach', entityId: String(c._id), result: 'success', meta: { to: `+${String(rec.phone).slice(0, 4)}…${String(rec.phone).slice(-2)}` } });
+    } catch (e: any) {
+      const msg = String(e?.message ?? 'WhatsApp send failed').slice(0, 220);
+      if (e instanceof WhatsappError && e.accountWide) {
+        if (phoneOnly) await this.requeue(rec);
+        else { rec.waStatus = 'failed'; rec.waError = msg; await rec.save(); }
+        c.status = 'paused'; c.note = `Paused: ${msg}`; await c.save();
+        await this.audit.record({ userId, actor: 'agent', action: 'outreach.paused', entityType: 'outreach', entityId: String(c._id), result: 'failure', detail: msg });
+        return false;
+      }
+      rec.waStatus = 'failed'; rec.waError = msg; if (phoneOnly) { rec.status = 'failed'; rec.error = msg; }
+      await rec.save();
+      await this.audit.record({ userId, actor: 'agent', action: 'outreach.whatsapp_failed', entityType: 'outreach', entityId: String(c._id), result: 'failure', detail: msg });
+    }
+    return true;
   }
   private requeue(rec: any) { rec.status = 'queued'; return rec.save(); }
 

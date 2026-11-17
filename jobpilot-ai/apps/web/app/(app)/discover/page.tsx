@@ -180,7 +180,33 @@ export default function Discover() {
     const msg = `Hello, I am ${meName || 'a candidate'}. I am interested in the ${it.title} role at ${it.company}.${emailed || it.applicationEmail ? ` I have ${emailed ? 'sent' : 'also written'} an email${it.applicationEmail ? ` to ${it.applicationEmail}` : ''} with my resume attached.` : ''} I would be glad to discuss it. Thank you.`;
     return `https://wa.me/${waDigits(it.contactPhone)}?text=${encodeURIComponent(msg)}`;
   };
+  const [waApi, setWaApi] = useState<{ configured: boolean; note?: string } | null>(null);
+  useEffect(() => { api('/whatsapp/status').then(setWaApi).catch(() => setWaApi({ configured: false })); }, []);
+  /** WhatsApp Business API is set up on the server: the message and resume go out directly, no manual tap. */
+  async function waSend(it: any) {
+    if (!window.confirm(`Send your resume to ${it.contactPhone} on WhatsApp now?\n\nA short message goes out with ${resume?.fileName ?? 'your resume'} attached.`)) return;
+    setErr(''); setOk('');
+    try {
+      const r = await api('/whatsapp/send-job', { body: { jobId: it.jobId, resumeId: resume?._id } });
+      if (r.ok) setOk(`WhatsApp sent to ${r.to} with your resume attached.`); else setErr(r.message ?? 'WhatsApp was not sent.');
+    } catch (x) { setErr(errText(x)); }
+  }
   async function sendBoth(it: any) {
+    if (waApi?.configured) {
+      if (!window.confirm(`Send your application email to ${it.applicationEmail} and a WhatsApp message to ${it.contactPhone}, both with your resume attached?`)) return;
+      setErr(''); setOk('');
+      setSt((c) => ({ ...c, [it.jobId]: { state: 'sending', label: 'Writing email…' } }));
+      try {
+        const r = await api('/applications/quick-send', { body: { jobId: it.jobId, careerProfileId: f.profileId, resumeId: resume?._id } });
+        setSt((c) => ({ ...c, [it.jobId]: { id: r.applicationId, status: r.status, error: r.ok ? null : r.message, sentAt: r.ok ? new Date().toISOString() : null, to: r.to } }));
+        const w = await api('/whatsapp/send-job', { body: { jobId: it.jobId, resumeId: resume?._id } }).catch((x) => ({ ok: false, message: errText(x) }));
+        if (r.ok && w.ok) setOk(`Email sent to ${r.to ?? it.applicationEmail} and WhatsApp sent to ${w.to}, both with your resume.`);
+        else if (r.ok) setErr(`Email sent to ${r.to ?? it.applicationEmail}, but WhatsApp failed: ${w.message}`);
+        else if (w.ok) setErr(`WhatsApp sent to ${w.to}, but the email was not sent: ${r.message ?? 'unknown error'}`);
+        else setErr(`Nothing was sent. Email: ${r.message ?? 'failed'}. WhatsApp: ${w.message}`);
+      } catch (x) { setSt((c) => ({ ...c, [it.jobId]: { status: 'send_failed', error: errText(x) } })); }
+      return;
+    }
     if (!window.confirm(`Send your application email to ${it.applicationEmail} (resume attached) and open WhatsApp for ${it.contactPhone}?\n\nIn WhatsApp you press Send yourself.`)) return;
     const w = window.open('', '_blank'); // opened now, inside the click, so the browser does not block it
     setErr(''); setOk('');
@@ -355,10 +381,12 @@ export default function Discover() {
                     <div className="jc-act">
                       {applied ? <button className="btn sm" disabled>✓ Applied</button>
                         : hasMail ? <><button className="btn sm primary" onClick={() => writeEmail(it)}>✉ Preview &amp; send</button>
-                          {hasPhone && <button className="btn sm primary" disabled={sending} onClick={() => sendBoth(it)} title="Sends the email now and opens WhatsApp">✉ + 💬 Both</button>}</>
+                          {hasPhone && <button className="btn sm primary" disabled={sending} onClick={() => sendBoth(it)} title={waApi?.configured ? 'Sends the email and the WhatsApp message, both with your resume' : 'Sends the email now and opens WhatsApp'}>✉ + 💬 Both</button>}</>
                         : <>{it.applicationUrl && <a className="btn sm primary" href={it.applicationUrl} target="_blank" rel="noopener noreferrer" title="This employer takes applications on the job board">Apply on {dom ?? 'site'} ↗</a>}
                           <button className="btn sm" onClick={() => writeEmail(it)} title="AI writes a cover note you can paste into the application">✎ Cover note</button></>}
-                      {hasPhone && <a className="btn sm jf-wa" href={waLink(it)} target="_blank" rel="noopener noreferrer" title="Opens WhatsApp with a message ready to send">💬 WhatsApp</a>}
+                      {hasPhone && (waApi?.configured
+                        ? <button type="button" className="btn sm jf-wa" onClick={() => waSend(it)} title="Sends a WhatsApp message with your resume attached">💬 Send resume</button>
+                        : <a className="btn sm jf-wa" href={waLink(it)} target="_blank" rel="noopener noreferrer" title="Opens WhatsApp with a message ready to send">💬 WhatsApp</a>)}
                       {!applied && <button type="button" className="btn sm" onClick={() => setAdd(add?.id === it.jobId ? null : { id: it.jobId, email: it.applicationEmail ?? '', phone: it.contactPhone ?? '' })}>{hasMail || hasPhone ? '✎ Edit contact' : '➕ Add HR contact'}</button>}
                       {it.applicationUrl && hasMail && <a className="btn sm" href={it.applicationUrl} target="_blank" rel="noopener noreferrer">Posting ↗</a>}
                     </div>

@@ -40,7 +40,12 @@ function ConfirmModal({ icon, title, message, confirmLabel, confirmTone, onConfi
   );
 }
 
-type Rec = { email: string; name?: string; company?: string };
+type Rec = { email: string; phone?: string; name?: string; company?: string };
+const isPO = (e: string) => e.endsWith('@phone.jobpilot.invalid');
+/** What to show for a contact: the email, the phone, or both. */
+const who = (v: Rec) => [isPO(v.email) ? '' : v.email, v.phone ? `📱 +${v.phone}` : ''].filter(Boolean).join(' · ');
+/** One line for the paste box: email, phone, name, company. */
+const line = (v: Rec) => [isPO(v.email) ? '' : v.email, v.phone ? `+${v.phone}` : '', v.name ?? '', v.company ?? ''].filter(Boolean).join(', ');
 type Parsed = { valid: Rec[]; invalid: { line: string; reason: string }[]; duplicates: number; truncated: number; alreadyContacted: string[] };
 type Found = Parsed & { seen: number };
 type Camp = { id: string; name: string; subject: string; status: string; gapSec: number; nextAt: string | null; note: string | null; counts: Record<string, number>; total: number };
@@ -67,7 +72,8 @@ export default function Outreach() {
   const [gap, setGap] = useState(45); const [extra, setExtra] = useState(true);
   const [lim, setLim] = useState<any>(null); const [camps, setCamps] = useState<Camp[]>([]);
   const [liveId, setLiveId] = useState<string | null>(null); const [live, setLive] = useState<any>(null);
-  const [prev, setPrev] = useState<{ subject: string; html: string } | null>(null);
+  const [prev, setPrev] = useState<{ subject: string; html: string; whatsapp?: string; resumeName?: string | null } | null>(null); const [prevTab, setPrevTab] = useState<'email' | 'wa'>('email');
+  const [wa, setWa] = useState(false); const [waText, setWaText] = useState(''); const [waOpen, setWaOpen] = useState(false);
   const [busy, setBusy] = useState(''); const [err, setErr] = useState(''); const [ok, setOk] = useState('');
   const [undo, setUndo] = useState<string | null>(null); const [aiNote, setAiNote] = useState('');
   const [confirm, setConfirm] = useState<{ icon: string; title: string; message: string; confirmLabel: string; confirmTone: 'primary' | 'danger'; onConfirm: () => void } | null>(null);
@@ -116,31 +122,34 @@ export default function Outreach() {
         api<Found>('/outreach/from-image', { body: { image: data } }),
         new Promise<never>((_, rej) => setTimeout(() => rej(new Error('Reading took too long. Try a smaller crop of the screenshot, or try again.')), 45_000)),
       ]);
-      if (!r.valid.length) { setErr('No email addresses were found in that image. Try a sharper or larger screenshot.'); return; }
+      if (!r.valid.length) { setErr('No emails or phone numbers were found in that image. Try a sharper or larger screenshot.'); return; }
+      if (r.valid.some((v) => v.phone) && lim?.whatsapp?.configured) setWa(true);
       // Auto-insert new (non-already-contacted) emails straight into the textarea.
       const newEmails = r.valid.filter((v) => !r.alreadyContacted.includes(v.email));
-      const lines = newEmails.map((v) => [v.email, v.name ?? '', v.company ?? ''].join(', ').replace(/(, )+$/, ''));
+      const lines = newEmails.map(line);
       if (lines.length > 0) {
         setText((t) => (t.trim() ? t.trimEnd() + '\n' : '') + lines.join('\n'));
-        setOk(`Added ${lines.length} email${lines.length === 1 ? '' : 's'} from the image.${r.alreadyContacted.length ? ` (${r.alreadyContacted.length} already contacted, skipped)` : ''}`);
+        setOk(`Added ${lines.length} contact${lines.length === 1 ? '' : 's'} from the image.${r.alreadyContacted.length ? ` (${r.alreadyContacted.length} already contacted, skipped)` : ''}`);
       } else {
-        setOk(`${r.valid.length} email${r.valid.length === 1 ? '' : 's'} found but all were already contacted recently.`);
+        setOk(`${r.valid.length} contact${r.valid.length === 1 ? '' : 's'} found but all were already contacted recently.`);
       }
       // Show the found panel only when some were already contacted so the user can optionally add those too.
       if (r.alreadyContacted.length > 0) { setFound(r); setPick(new Set()); } else { setFound(null); setShot(null); }
     } catch (e) { setErr(e instanceof Error && !('status' in e) ? e.message : errText(e)); } finally { setBusy(''); }
   }
   function addPicked() {
-    if (!found) return; const lines = found.valid.filter((v) => pick.has(v.email)).map((v) => [v.email, v.name ?? '', v.company ?? ''].join(', ').replace(/(, )+$/, ''));
+    if (!found) return; const lines = found.valid.filter((v) => pick.has(v.email)).map(line);
     setText((t) => (t.trim() ? t.trimEnd() + '\n' : '') + lines.join('\n')); setOk(`Added ${lines.length} email${lines.length === 1 ? '' : 's'} from the image.`); setFound(null); setShot(null);
   }
 
-  const n = parsed?.valid.length ?? 0;
+  const poN = parsed?.valid.filter((v) => isPO(v.email)).length ?? 0; const phN = parsed?.valid.filter((v) => v.phone).length ?? 0;
+  const n = wa ? (parsed?.valid.length ?? 0) : (parsed?.valid.length ?? 0) - poN;
   const minutes = Math.max(1, Math.round((n * gap * 1.3) / 60));
   const words = body.trim() ? body.trim().split(/\s+/).length : 0;
   const checks = [
-    { ok: n > 0, t: n ? `${n} email${n > 1 ? 's' : ''}` : 'Add emails' }, { ok: !!resumeId, t: resumeId ? 'Resume' : 'Pick resume' },
-    { ok: name.trim().length > 0, t: 'Name' }, { ok: subject.trim().length >= 3 && body.trim().length >= 20, t: 'Message' }, { ok: !!lim?.gmailConnected, t: lim?.gmailConnected ? 'Gmail' : 'Connect Gmail' },
+    { ok: n > 0, t: n ? `${n} contact${n > 1 ? 's' : ''}` : 'Add contacts' }, { ok: !!resumeId, t: resumeId ? 'Resume' : 'Pick resume' },
+    { ok: name.trim().length > 0, t: 'Name' }, { ok: subject.trim().length >= 3 && body.trim().length >= 20, t: 'Message' }, { ok: n === poN && poN > 0 ? true : !!lim?.gmailConnected, t: lim?.gmailConnected ? 'Gmail' : 'Connect Gmail' },
+    ...(wa ? [{ ok: phN > 0, t: phN ? `${phN} on WhatsApp` : 'No phone numbers' }] : []),
   ];
   const ready = n > 0 && !!resumeId && name.trim() && subject.trim().length >= 3 && body.trim().length >= 20;
 
@@ -162,14 +171,14 @@ export default function Outreach() {
   }
   async function preview() {
     setBusy('prev'); setErr('');
-    try { setPrev(await api('/outreach/preview', { body: { subject, body, resumeId: resumeId || undefined } })); } catch (e) { setErr(errText(e)); } finally { setBusy(''); }
+    try { setPrev(await api('/outreach/preview', { body: { subject, body, resumeId: resumeId || undefined, waText: waText.trim() || undefined } })); setPrevTab('email'); } catch (e) { setErr(errText(e)); } finally { setBusy(''); }
   }
   async function create(start: boolean) {
     if (start) {
       setConfirm({
         icon: '📨',
         title: 'Start campaign?',
-        message: `Send ${n} email${n === 1 ? '' : 's'} one by one from your Gmail — about ${minutes} minute${minutes === 1 ? '' : 's'} in total, each with your resume attached.`,
+        message: `Message ${n} contact${n === 1 ? '' : 's'} one by one${wa ? ' by email and WhatsApp' : ' from your Gmail'} — about ${minutes} minute${minutes === 1 ? '' : 's'} in total, each with your resume attached.`,
         confirmLabel: 'Yes, start sending',
         confirmTone: 'primary',
         onConfirm: () => { setConfirm(null); _create(true); },
@@ -181,8 +190,8 @@ export default function Outreach() {
   async function _create(start: boolean) {
     setBusy(start ? 'start' : 'save'); setErr(''); setOk('');
     try {
-      const r = await api('/outreach/campaigns', { body: { name, subject, body, resumeId, includeExtraFiles: extra, gapSec: gap, recipientsText: text, start } });
-      setOk(start ? `Started: ${r.recipients} emails go out one by one. Watch the live panel.` : `Saved as a draft with ${r.recipients} recipients.`);
+      const r = await api('/outreach/campaigns', { body: { name, subject, body, resumeId, includeExtraFiles: extra, gapSec: gap, recipientsText: text, start, whatsapp: wa, waText: waText.trim() || undefined } });
+      setOk(start ? `Started: ${r.recipients} contact${r.recipients === 1 ? '' : 's'} are messaged one by one${wa ? ' (email + WhatsApp)' : ''}. Watch the live panel.${r.skippedPhoneOnly ? ` ${r.skippedPhoneOnly} phone-only contact${r.skippedPhoneOnly === 1 ? ' was' : 's were'} left out because WhatsApp is off.` : ''}` : `Saved as a draft with ${r.recipients} recipients.`);
       setLiveId(r.id); if (start) { setText(''); setParsed(null); setPrev(null); setTimeout(() => liveRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300); }
       loadCamps(); loadLive(r.id); api('/outreach/limits').then(setLim);
     } catch (e) { setErr(errText(e)); } finally { setBusy(''); }
@@ -235,14 +244,14 @@ export default function Outreach() {
       <div className="ou-cols">
         {/* ---------- column A: recipients ---------- */}
         <section className="card ou-c">
-          <div className="ou-h"><span className="ou-n">1</span><h2>Who to email</h2><span className="sp" />{n > 0 && <Pill tone="ok">{n} ready</Pill>}</div>
+          <div className="ou-h"><span className="ou-n">1</span><h2>Who to contact</h2><span className="sp" />{n > 0 && <Pill tone="ok">{n} ready</Pill>}</div>
 
           <div className={`ou-drop ${drag ? 'drag' : ''} ${busy === 'img' ? 'busy' : ''}`} onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
             onDrop={(e) => { e.preventDefault(); setDrag(false); const f = e.dataTransfer.files?.[0]; if (f?.type.startsWith('image/')) readImage(f); }}>
             <input ref={imgIn} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) readImage(f); e.target.value = ''; }} />
             {shot ? <img src={shot} alt="Your screenshot" /> : <span className="ou-drop-ic"><Icon name="file" size={18} /></span>}
             <div className="ou-drop-t">
-              {busy === 'img' ? <><b>AI is reading your image…</b><small>Finding every email address · {secs}s</small></> : <><b>Paste a screenshot of HR emails</b><small>Press <kbd>Ctrl</kbd>+<kbd>V</kbd>, drop an image, or <button type="button" onClick={() => imgIn.current?.click()}>choose a file</button></small></>}
+              {busy === 'img' ? <><b>AI is reading your image…</b><small>Finding every email and phone number · {secs}s</small></> : <><b>Paste a screenshot of HR emails or numbers</b><small>Press <kbd>Ctrl</kbd>+<kbd>V</kbd>, drop an image, or <button type="button" onClick={() => imgIn.current?.click()}>choose a file</button></small></>}
             </div>
             {busy === 'img' && <span className="ou-scan" />}
           </div>
@@ -254,7 +263,7 @@ export default function Outreach() {
                 <button type="button" onClick={() => setPick(new Set(found.alreadyContacted))}>All</button><button type="button" onClick={() => setPick(new Set())}>None</button></div>
               <div className="ou-found-l">{found.valid.filter((v) => found.alreadyContacted.includes(v.email)).map((v, i) => {
                 const on = pick.has(v.email);
-                return <label key={v.email} className={on ? 'on' : ''} style={{ animationDelay: `${Math.min(i, 20) * 40}ms` }}><input type="checkbox" checked={on} onChange={() => setPick((s) => { const x = new Set(s); on ? x.delete(v.email) : x.add(v.email); return x; })} /><span>{v.name ? `${v.name} · ` : ''}{v.email}</span><em>emailed</em></label>;
+                return <label key={v.email} className={on ? 'on' : ''} style={{ animationDelay: `${Math.min(i, 20) * 40}ms` }}><input type="checkbox" checked={on} onChange={() => setPick((s) => { const x = new Set(s); on ? x.delete(v.email) : x.add(v.email); return x; })} /><span>{v.name ? `${v.name} · ` : ''}{who(v)}</span><em>messaged</em></label>;
               })}</div>
               <div className="ou-found-f"><span className="faint">These were recently contacted. Add anyway?</span><button type="button" className="btn sm primary" onClick={addPicked} disabled={pick.size === 0}>Add {pick.size} selected</button></div>
             </div>
@@ -274,9 +283,11 @@ export default function Outreach() {
                 {parsed.duplicates > 0 && <Pill tone="gray">{parsed.duplicates} duplicate</Pill>}
                 {parsed.invalid.length > 0 && <Pill tone="bad">{parsed.invalid.length} skipped</Pill>}
                 {parsed.truncated > 0 && <Pill tone="warn">{parsed.truncated} over limit</Pill>}
-                {parsed.alreadyContacted.length > 0 && <Pill tone="warn">{parsed.alreadyContacted.length} emailed lately</Pill>}
+                {parsed.alreadyContacted.length > 0 && <Pill tone="warn">{parsed.alreadyContacted.length} contacted lately</Pill>}
+                {phN > 0 && <Pill tone={wa ? 'ok' : 'gray'}>📱 {phN} with phone</Pill>}
+                {poN > 0 && !wa && <Pill tone="warn">{poN} phone-only: turn on WhatsApp</Pill>}
               </div>
-              <div className="ou-chips">{parsed.valid.slice(0, 60).map((v) => <span key={v.email} title={v.company ?? ''}>{v.email}</span>)}{parsed.valid.length > 60 && <span>+{parsed.valid.length - 60}</span>}</div>
+              <div className="ou-chips">{parsed.valid.slice(0, 60).map((v) => <span key={v.email} title={v.company ?? ''}>{who(v)}</span>)}{parsed.valid.length > 60 && <span>+{parsed.valid.length - 60}</span>}</div>
               {parsed.invalid.length > 0 && <ul className="ou-bad">{parsed.invalid.slice(0, 3).map((i, k) => <li key={k}><code>{i.line}</code> {i.reason}</li>)}</ul>}
             </div>
           ) : <p className="faint ou-hint">One per line: <code>hr@acme.com</code>, <code>Name &lt;hr@acme.com&gt;</code> or CSV <code>email, name, company</code>. Up to 100.</p>}
@@ -318,6 +329,12 @@ export default function Outreach() {
               <label className="f ou-f">Gap<select value={gap} onChange={(e) => setGap(Number(e.target.value))}>{[10, 15, 20, 30, 45, 60, 90, 120, 180].map((s) => <option key={s} value={s}>{s >= 60 ? `${s / 60} min` : `${s} sec`}</option>)}</select></label>
               <label className="ou-check"><input type="checkbox" checked={extra} onChange={(e) => setExtra(e.target.checked)} /><span>Extra files</span></label>
             </div>
+            <div className={`ou-wa ${wa ? 'on' : ''}`}>
+              <label className="ou-check"><input type="checkbox" checked={wa} disabled={!lim?.whatsapp?.configured} onChange={(e) => setWa(e.target.checked)} /><span>💬 Also send on WhatsApp <small>resume attached</small></span></label>
+              <div className="faint">{lim?.whatsapp?.configured ? (wa ? (phN ? `${phN} contact${phN === 1 ? ' has' : 's have'} a phone number.` : 'Add phone numbers (or paste a screenshot that shows them).') : lim.whatsapp.note) : (lim?.whatsapp?.note ?? 'Checking WhatsApp…')}</div>
+              {wa && <button type="button" className="ou-lnk" onClick={() => setWaOpen(!waOpen)}>{waOpen ? 'Hide' : 'Customise'} WhatsApp message ▾</button>}
+              {wa && waOpen && <textarea className="ou-ta" rows={4} maxLength={1000} value={waText} onChange={(e) => setWaText(e.target.value)} placeholder={'Optional. Replaces the middle of the message, e.g.\nI am a Full Stack developer and would like to apply at {{company}}.'} />}
+            </div>
             {gap < 30 && <div className="faint ou-warn">Very fast sending can look like spam to Gmail. For many emails, 30 sec or more is safer.</div>}
           </section>
 
@@ -340,7 +357,8 @@ export default function Outreach() {
                   <div key={r.email} className={`ou-r ${r.status}`}>
                     <span className="ou-st">{r.status === 'sent' ? <svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg> : r.status === 'failed' ? '!' : r.status === 'sending' ? <i className="ou-spin" /> : r.status === 'skipped' ? '–' : ''}</span>
                     <span className="ou-em">{r.name ? <b>{r.name}</b> : null}{r.email}</span>
-                    <small>{r.status === 'sent' ? 'sent ✓' : r.status === 'sending' ? 'sending…' : r.status === 'failed' ? (r.error ?? 'failed') : r.status}</small>
+                    <span className="ou-ch">{!r.phoneOnly && <i className={r.status} title="Email">✉</i>}{r.phone && live.whatsapp && <i className={`wa ${r.waStatus ?? (r.status === 'sending' ? 'sending' : '')}`} title={r.waError ?? 'WhatsApp'}>💬</i>}</span>
+                    <small>{r.status === 'sent' ? (r.waStatus === 'failed' ? 'sent · WA failed' : 'sent ✓') : r.status === 'sending' ? 'sending…' : r.status === 'failed' ? (r.error ?? r.waError ?? 'failed') : r.status}</small>
                   </div>))}</div>
                 <div className="ou-row">
                   {live.status === 'running' && <button className="btn sm" onClick={() => act(live.id, 'pause')}><Icon name="pause" size={12} />Pause</button>}
@@ -380,8 +398,12 @@ export default function Outreach() {
       {prev && (
         <div className="ou-modal" role="dialog" aria-modal="true" aria-label="Email preview" onClick={() => setPrev(null)}>
           <div className="ou-modal-in" onClick={(e) => e.stopPropagation()}>
-            <div className="ou-sub"><span><b>Subject:</b> {prev.subject}</span><button className="btn sm" onClick={() => setPrev(null)}>Close</button></div>
-            <iframe title="Email preview" sandbox="" srcDoc={prev.html} />
+            <div className="ou-sub">
+              <span className="ou-tabs"><button type="button" className={prevTab === 'email' ? 'on' : ''} onClick={() => setPrevTab('email')}>✉ Email</button>{wa && <button type="button" className={prevTab === 'wa' ? 'on' : ''} onClick={() => setPrevTab('wa')}>💬 WhatsApp</button>}</span>
+              <span className="ou-subj">{prevTab === 'email' ? <><b>Subject:</b> {prev.subject}</> : 'Sample recipient: Priya Sharma, Acme Technologies'}</span><button className="btn sm" onClick={() => setPrev(null)}>Close</button></div>
+            {prevTab === 'email' ? <iframe title="Email preview" sandbox="" srcDoc={prev.html} /> : (
+              <div className="wa-chat"><div className="wa-bub"><div className="wa-doc"><span>PDF</span><b>{prev.resumeName ?? 'resume.pdf'}</b></div><div className="wa-txt">{prev.whatsapp}</div><small>now ✓✓</small></div></div>
+            )}
           </div>
         </div>
       )}
