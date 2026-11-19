@@ -24,6 +24,7 @@ import { OutreachModule } from './outreach/outreach.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { DemoModule } from './demo/demo.module';
 import { ResumesModule } from './resumes/resumes.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -32,7 +33,7 @@ import { ResumesModule } from './resumes/resumes.module';
     AdminModule,
     AuditModule, AiModule, MailModule,
     AuthModule, CareerProfilesModule, JobsModule, ApplicationsModule,
-    ContactsModule, ResumesModule, InboxModule, FollowUpsModule, AgentModule, AnalyticsModule, PrepModule, DiscoveryModule, DemoModule, OutreachModule, WhatsappModule,
+    ContactsModule, ResumesModule, InboxModule, FollowUpsModule, AgentModule, AnalyticsModule, PrepModule, DiscoveryModule, DemoModule, OutreachModule, WhatsappModule, DashboardModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: AuthGuard }],

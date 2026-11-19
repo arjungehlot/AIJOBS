@@ -20,6 +20,7 @@ export const ParseDto = z.object({ text: z.string().max(60_000) });
 export const PreviewDto = z.object({ subject: z.string().max(300), body: z.string().max(8000), resumeId: oid.optional(), name: z.string().max(80).optional(), company: z.string().max(80).optional(), waText: z.string().max(1000).optional() });
 export const DraftDto = z.object({ role: z.string().trim().max(120).optional(), tone: z.enum(['professional', 'concise', 'friendly', 'technical']).default('professional') });
 export const ImageDto = z.object({ image: z.string().max(11_000_000).regex(/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/, 'Use a PNG, JPEG or WebP image') });
+export const ReplyDto = z.object({ threadId: z.string().regex(/^[a-f0-9]{8,32}$/i), tone: z.enum(['professional', 'concise', 'friendly', 'enthusiastic']).default('professional'), instruction: z.string().trim().max(300).optional() });
 export const EnhanceDto = z.object({ body: z.string().trim().min(20).max(8000), action: z.enum(['improve', 'shorter', 'friendlier', 'formal', 'confident', 'grammar']) });
 const ACTIONS: Record<string, string> = {
   improve: 'Improve clarity, flow and polish while keeping about the same length.',
@@ -100,6 +101,20 @@ export class OutreachService {
     return { ...r, alreadyContacted: r.valid.filter((v) => already.has(v.email)).map((v) => v.email), seen: found.length };
   }
 
+  /** Reads a mailbox conversation and proposes a reply. Nothing is sent: the user edits and presses Send. */
+  async suggestReply(userId: string, dto: z.infer<typeof ReplyDto>) {
+    if (!this.ai.suggestReply) throw new BadRequestException('AI replies need the Gemini AI provider. Set GEMINI_API_KEY on the server.');
+    const [t, u, resume] = await Promise.all([this.gmail.getThread(userId, dto.threadId), this.users.findById(userId).lean(), this.resumes.pick(userId)]);
+    // Newest text only: drop quoted history ("On ... wrote:", "> ..." lines) so the model sees each message once.
+    const fresh = (b: string) => { const lines = String(b ?? '').replace(/\r/g, '').split('\n'); const cut = lines.findIndex((l) => /^\s*(on .{5,120} wrote:|-{2,}\s*original message|from:\s.+@)/i.test(l) || /^>/.test(l)); return (cut > 0 ? lines.slice(0, cut) : lines).join('\n').replace(/\n{3,}/g, '\n\n').trim(); };
+    const thread = t.messages.map((m: any) => ({ from: m.mine ? 'Candidate' : `${m.from?.name ?? ''} <${m.from?.email ?? ''}>`.trim(), mine: !!m.mine, date: new Date(m.date).toISOString().slice(0, 16).replace('T', ' '), text: fresh(m.body) })).filter((m: any) => m.text);
+    if (!thread.length) throw new BadRequestException('This conversation has no readable text.');
+    const model = await this.settings.modelFor(userId);
+    const out = await this.ai.suggestReply({ candidateName: u?.name ?? '', resumeText: resume?.text, skills: resume?.skills, tone: dto.tone, instruction: dto.instruction, thread }, model ? { model } : undefined);
+    if (!out) throw new BadRequestException('AI replies need the Gemini AI provider. Set GEMINI_API_KEY on the server.');
+    return out;
+  }
+
   async enhance(userId: string, dto: z.infer<typeof EnhanceDto>) {
     if (!this.ai.rewriteText) throw new BadRequestException('Text enhancement needs the Gemini AI provider. Set GEMINI_API_KEY on the server.');
     const out = await this.ai.rewriteText(dto.body, ACTIONS[dto.action]);
@@ -130,7 +145,7 @@ export class OutreachService {
     await this.context(userId, dto.resumeId); // resume must exist with a file
     const u = await this.users.findById(userId).lean();
     const parsed = parseRecipients(dto.recipientsText, { selfEmail: u?.email, defaultCc: env.waDefaultCc });
-    if (dto.whatsapp && !this.wa.configured) throw new BadRequestException('WhatsApp sending is not set up on the server yet. Add WHATSAPP_ACCESS_TOKEN and WHATSAPP_PHONE_NUMBER_ID to .env, or turn WhatsApp off.');
+    if (dto.whatsapp && !this.wa.configured) throw new BadRequestException('WhatsApp sending is not set up on the server yet. Add WHATSAPP_BASE_URL and WHATSAPP_API_KEY to .env, or turn WhatsApp off.');
     // Without WhatsApp, people who only have a phone number cannot be reached, so they are left out (and counted).
     const people = dto.whatsapp ? parsed.valid : parsed.valid.filter((r) => !isPhoneOnly(r.email));
     const skippedPhoneOnly = parsed.valid.length - people.length;
@@ -149,7 +164,7 @@ export class OutreachService {
   async start(userId: string, id: string) {
     const c = await this.own(userId, id);
     if (['done', 'cancelled'].includes(c.status)) throw new BadRequestException('This campaign has finished. Create a new one.');
-    if (c.whatsapp && !this.wa.configured) throw new BadRequestException('WhatsApp sending is not set up on the server yet (WHATSAPP_ACCESS_TOKEN / WHATSAPP_PHONE_NUMBER_ID).');
+    if (c.whatsapp && !this.wa.configured) throw new BadRequestException('WhatsApp sending is not set up on the server yet (WHATSAPP_BASE_URL / WHATSAPP_API_KEY).');
     const needsMail = !!(await this.recs.exists({ campaignId: c._id, status: 'queued', email: { $not: /@phone\.jobpilot\.invalid$/ } }));
     if (needsMail && env.mailProvider === 'gmail' && !(await this.gmail.hasAccount(userId))) throw new BadRequestException('Connect your Gmail first (sign in with Google or Email Setup). Emails are sent from your own address.');
     await this.context(userId, c.resumeId ? String(c.resumeId) : undefined);
@@ -252,7 +267,7 @@ export class OutreachService {
       const meta = await this.resumes.pick(userId, c.resumeId ? String(c.resumeId) : undefined);
       const text = renderWhatsAppText({ recipientName: r.name, company: r.company, senderName: ctx.u.name, skills: meta?.skills, links: urlsIn(ctx.signature), custom: c.waText ? fillWa(c.waText, r) : undefined });
       const first = r.name?.trim() ? r.name.trim().split(/\s+/)[0] : 'there';
-      const out = await this.wa.send({ to: rec.phone, text, resume: ctx.resume, vars: [first, ctx.u.name, r.company?.trim() || 'your company', ''] });
+      const out = await this.wa.send({ to: rec.phone, text, resume: ctx.resume, key: rec.key, vars: [first, ctx.u.name, r.company?.trim() || 'your company', ''] });
       rec.waStatus = 'sent'; rec.waSentAt = new Date(); rec.waMessageId = out.messageId; rec.waError = undefined;
       if (phoneOnly) { rec.status = 'sent'; rec.sentAt = new Date(); rec.error = undefined; }
       await rec.save();

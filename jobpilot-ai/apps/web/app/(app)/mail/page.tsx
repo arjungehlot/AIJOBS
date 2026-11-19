@@ -60,6 +60,7 @@ export default function Mailbox() {
   const [err, setErr] = useState(''); const [ok, setOk] = useState(''); const [busy, setBusy] = useState(false);
   const [compose, setCompose] = useState<{ to: string; subject: string; body: string } | null>(null);
   const [reply, setReply] = useState(''); const [replying, setReplying] = useState(false);
+  const [ai, setAi] = useState<any>(null); const [aiBusy, setAiBusy] = useState(false); const [tone, setTone] = useState('professional'); const [aiNote, setAiNote] = useState('');
   const seq = useRef(0);
 
   useEffect(() => { api('/integrations/gmail/status').then(setSt).catch((e) => setErr(errText(e))); }, []);
@@ -81,7 +82,7 @@ export default function Mailbox() {
   useEffect(() => { if (st?.connected) { setItems(null); setSel(null); setThread(null); load(); } }, [st?.connected, folder, applied]);
 
   async function openMsg(m: any) {
-    setSel(m); setThread(null); setReply(''); setReplying(false); setQuoted({});
+    setSel(m); setThread(null); setReply(''); setReplying(false); setQuoted({}); setAi(null); setAiNote('');
     try {
       const t = await api(`/integrations/gmail/threads/${m.threadId}`);
       setThread(t); setOpen({ [t.messages[t.messages.length - 1].id]: true }); // newest expanded, older collapsed
@@ -91,6 +92,14 @@ export default function Mailbox() {
     e.preventDefault(); if (!compose) return; setBusy(true); setErr(''); setOk('');
     try { await api('/integrations/gmail/send', { body: compose }); setCompose(null); setOk('Sent from your Gmail.'); if (folder === 'sent') load(); }
     catch (x) { setErr(errText(x)); } finally { setBusy(false); }
+  }
+  /** Asks the AI to read the conversation and propose a reply. Nothing is sent; the text lands in the box to edit. */
+  async function aiReply(t = tone) {
+    if (!thread) return; setAiBusy(true); setErr(''); setOk(''); setReplying(true);
+    try {
+      const r = await api('/outreach/reply-suggest', { body: { threadId: thread.threadId, tone: t, ...(aiNote.trim() ? { instruction: aiNote.trim() } : {}) } });
+      setAi(r); if (r.body) setReply(r.body);
+    } catch (x) { setErr(errText(x)); } finally { setAiBusy(false); }
   }
   async function sendReply() {
     if (!thread || !reply.trim()) return; setBusy(true); setErr(''); setOk('');
@@ -192,12 +201,28 @@ export default function Mailbox() {
                 })}
               </div>
               <div className="mreplybar">
-                {!replying ? <button className="btn" style={{ justifyContent: 'flex-start', color: 'var(--muted)' }} onClick={() => setReplying(true)}>↩ Reply to this conversation…</button> : (<>
-                  <textarea aria-label="Reply" autoFocus rows={4} placeholder="Write a reply…" value={reply} onChange={(e) => setReply(e.target.value)} />
-                  <div className="row" style={{ alignItems: 'center', gap: 8 }}>
+                {ai && (
+                  <div className={`aibox ${ai.suspicious ? 'warn' : ''}`}>
+                    <div className="aih"><span className="chip" style={{ margin: 0 }}>{ai.suspicious ? '⚠ Suspicious' : ({ interview: 'Interview', screening: 'Screening', info_request: 'Info request', offer: 'Offer', rejection: 'Rejection', follow_up: 'Follow-up', recruiter_outreach: 'Opportunity', newsletter: 'Automated', other: 'Message' } as any)[ai.kind] || 'Message'}</span><b>AI analysis</b><button className="btn sm" style={{ marginLeft: 'auto' }} onClick={() => setAi(null)} aria-label="Hide analysis">✕</button></div>
+                    {ai.summary && <p><b>What they want:</b> {ai.summary}</p>}
+                    {ai.advice && <p><b>Suggested action:</b> {ai.advice}</p>}
+                    {!ai.replyRecommended && !ai.body && <p className="faint">No reply is recommended for this message.</p>}
+                  </div>)}
+                {!replying ? (
+                  <div className="row" style={{ gap: 8 }}>
+                    <button className="btn" style={{ flex: 1, justifyContent: 'flex-start', color: 'var(--muted)' }} onClick={() => setReplying(true)}>↩ Reply to this conversation…</button>
+                    <button className="btn primary" disabled={aiBusy} onClick={() => aiReply()}>{aiBusy ? 'Reading…' : '✨ AI reply'}</button>
+                  </div>) : (<>
+                  <textarea aria-label="Reply" autoFocus rows={5} placeholder={aiBusy ? 'AI is reading the conversation…' : 'Write a reply…'} value={reply} onChange={(e) => setReply(e.target.value)} />
+                  <div className="row" style={{ alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                     <button className="btn primary" disabled={busy || !reply.trim()} onClick={sendReply}><Icon name="send" size={13} />{busy ? 'Sending…' : 'Send reply'}</button>
-                    <button className="btn" onClick={() => { setReplying(false); setReply(''); }}>Discard</button>
-                    <span className="faint">Nothing is sent until you press Send.</span>
+                    <button className="btn" onClick={() => { setReplying(false); setReply(''); setAi(null); }}>Discard</button>
+                    <span className="aibar">
+                      <select aria-label="Tone" value={tone} onChange={(e) => setTone(e.target.value)}><option value="professional">Professional</option><option value="concise">Short</option><option value="friendly">Friendly</option><option value="enthusiastic">Enthusiastic</option></select>
+                      <input aria-label="Extra instruction" placeholder="Optional: e.g. ask for JD, confirm Friday 4pm" value={aiNote} maxLength={300} onChange={(e) => setAiNote(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && aiReply()} />
+                      <button className="btn" disabled={aiBusy} onClick={() => aiReply()}>{aiBusy ? 'Writing…' : reply.trim() ? '✨ Rewrite' : '✨ AI reply'}</button>
+                    </span>
+                    <span className="faint" style={{ flexBasis: '100%' }}>AI drafts only. Check it, then press Send. Nothing is sent automatically.</span>
                   </div></>)}
               </div>
             </>)}
