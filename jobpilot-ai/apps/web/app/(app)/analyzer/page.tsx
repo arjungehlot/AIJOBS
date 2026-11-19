@@ -37,6 +37,7 @@ export default function Analyzer() {
   const [upBusy, setUpBusy] = useState(false);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState('');
+  const [stage, setStage] = useState('');
 
   useEffect(() => {
     api<any[]>('/career-profiles').then((p) => { setProfiles(p); if (p[0]) setProfileId(p[0]._id); }).catch((e) => setErr(errText(e)));
@@ -73,22 +74,66 @@ export default function Analyzer() {
     } catch (e) { setErr(errText(e)); } finally { setBusy(''); }
   }
 
+  const toFormObj = (j: any): Form => Object.fromEntries(FIELDS.map(([k]) => [k, Array.isArray(j[k]) ? j[k].join(', ') : j[k] == null ? '' : String(j[k])]));
+  const toBody = (f: Form, d: string) => {
+    const wm = f.workMode.trim().toLowerCase();
+    return {
+      company: f.company, title: f.title, location: f.location || undefined,
+      workMode: ['remote', 'hybrid', 'onsite'].includes(wm) ? wm : undefined,
+      employmentType: f.employmentType || undefined, description: d || undefined,
+      experienceMin: num(f.experienceMin), salaryMax: num(f.salaryMax),
+      applicationEmail: f.applicationEmail || undefined, applicationUrl: f.applicationUrl || undefined,
+      providerJobId: f.providerJobId || undefined,
+      requiredSkills: split(f.requiredSkills), preferredSkills: split(f.preferredSkills),
+      source: image ? 'screenshot' : 'pasted-text',
+    };
+  };
+
+  /** ONE CLICK: extract → save → score (profile chosen automatically) → write the email with your Resume Studio resume → send.
+   *  It stops, with everything filled in, when sending would be unsafe: poor fit, no company email in the post, Gmail not connected, or no resume PDF. */
+  async function oneClick(force = false) {
+    setErr(''); setDone(''); setBusy('auto'); setForm(null); setJob(null); setReport(null); setDupe(false); setStage('Reading the job…');
+    try {
+      if (!profileId) throw new Error('Create a career profile once (Career Profiles) so jobs can be scored.');
+      const a = tab === 'text' ? await api('/jobs/analyze', { body: { text } }) : await api('/jobs/analyze-screenshot', { body: { mime: image!.mime, base64: image!.base64 } });
+      const f = toFormObj(a.job); const d: string = a.job.description ?? '';
+      setForm(f); setMissing(a.missingFields); setDesc(d);
+      if (!f.company || !f.title) { setErr('Company or job title could not be read. Fix them below, then press Save job.'); return; }
+      setStage('Saving…');
+      const sv = await api('/jobs', { body: toBody(f, d) });
+      const jb = sv.job; setJob(jb); setDupe(!sv.created);
+      const email: string = jb.applicationEmail ?? ''; const confidence = email ? 'source_reported' : 'unverified';
+      setDraft((x) => ({ ...x, email, confidence }));
+      setStage('Scoring…');
+      const rep = await api(`/jobs/${jb._id}/match`, { body: { careerProfileId: profileId } }); setReport(rep);
+      setStage('Writing your email…');
+      let dr: any;
+      try { dr = await api('/applications/ai-draft', { body: { jobId: jb._id, careerProfileId: profileId, tone: 'professional' } }); }
+      catch (e) { setErr(errText(e)); const p = profiles.find((x) => x._id === profileId); setDraft((x) => ({ ...x, subject: `Application: ${jb.title} – ${jb.company}`, body: fallbackBody2(jb, rep, p) })); setMeta({ resumeId: null, attached: false, provider: 'template' }); return; }
+      setMeta({ resumeId: dr.resumeId, attached: dr.resumeAttached, provider: dr.provider });
+      const to = email || dr.recipient?.email || '';
+      setDraft((x) => ({ ...x, subject: dr.subject, body: dr.body, email: to, confidence: email ? 'source_reported' : to ? 'inferred' : 'unverified' }));
+      const why = !to ? 'No company email was found in the post. Add one below, then press Send.'
+        : !email ? 'The email address was not in the post itself. Please confirm it below, then press Send.'
+        : !dr.resumeAttached ? 'No resume PDF on file. Upload one in Resume Studio, then press Send.'
+        : !live ? 'Gmail is not connected, so the email is ready but not sent.'
+        : !force && (rep.recommendation === 'skip' || rep.mandatoryFailures?.length) ? 'This looks like a poor fit, so nothing was sent. Review the score, then press Send if you still want to apply.' : '';
+      if (why) { setDone(''); setErr(why); return; }
+      setStage('Sending…');
+      const ap = await api('/applications/drafts', { body: { jobId: jb._id, careerProfileId: profileId, recipientEmail: to, recipientConfidence: 'source_reported', subject: dr.subject, body: dr.body, matchScore: rep.score, resumeId: dr.resumeId ?? undefined } });
+      await api(`/applications/${ap._id}/approve`, { body: { confirmRecipient: false } });
+      const r = await api(`/applications/${ap._id}/send`, { body: {} });
+      if (r.status === 'applied') setDone(`Done: scored ${rep.score}/100 and sent to ${to} with your resume attached.`); else setErr(r.message ?? `Status: ${r.status}`);
+    } catch (e) { setErr(errText(e)); } finally { setBusy(''); setStage(''); }
+  }
+  const fallbackBody2 = (jb: any, r: any, p: any) =>
+    `Hello Hiring Team,\n\nI am applying for the ${jb.title} role at ${jb.company}.` + (r?.matchedRequired?.length ? ` My background includes ${r.matchedRequired.slice(0, 5).join(', ')}` : '') + (p?.yearsExperience ? ` across ${p.yearsExperience} years of experience.` : '.') + `\n\nMy resume is attached.\n\nKind regards`;
+
   async function save() {
     if (!form) return;
     setErr(''); setBusy('save');
     try {
-      const wm = form.workMode.trim().toLowerCase();
-      const body = {
-        company: form.company, title: form.title, location: form.location || undefined,
-        workMode: ['remote', 'hybrid', 'onsite'].includes(wm) ? wm : undefined,
-        employmentType: form.employmentType || undefined, description: desc || undefined,
-        experienceMin: num(form.experienceMin), salaryMax: num(form.salaryMax),
-        applicationEmail: form.applicationEmail || undefined, applicationUrl: form.applicationUrl || undefined,
-        providerJobId: form.providerJobId || undefined,
-        requiredSkills: split(form.requiredSkills), preferredSkills: split(form.preferredSkills),
-        source: image ? 'screenshot' : 'pasted-text',
-      };
-      const r = await api('/jobs', { body });
+      const r = await api('/jobs', { body: toBody(form, desc) });
       setJob(r.job); setDupe(!r.created);
       setDraft((d) => ({ ...d, email: r.job.applicationEmail ?? '', confidence: r.job.applicationEmail ? 'source_reported' : 'unverified' }));
     } catch (e) { setErr(errText(e)); } finally { setBusy(''); }
@@ -213,7 +258,10 @@ export default function Analyzer() {
               <input type="file" hidden accept="image/png,image/jpeg,image/webp" onChange={(e: ChangeEvent<HTMLInputElement>) => e.target.files?.[0] && readFile(e.target.files[0])} />
             </label>
           )}
-          <button className="btn primary lg" disabled={!canAnalyze || busy === 'analyze'} onClick={analyze}>{busy === 'analyze' ? '✨ Extracting…' : '✨ Extract details'}</button>
+          <button className="btn primary lg" disabled={!canAnalyze || !!busy || profiles.length === 0} onClick={() => oneClick()}>{busy === 'auto' ? `⏳ ${stage || 'Working…'}` : '⚡ Analyze, score & send'}</button>
+          <button className="btn" disabled={!canAnalyze || !!busy} onClick={analyze}>{busy === 'analyze' ? 'Extracting…' : 'Only extract details (review first)'}</button>
+          {profiles.length === 0 && <div className="msg warn">Create a <Link href="/profiles" style={{ textDecoration: 'underline' }}>career profile</Link> once so jobs can be scored.</div>}
+          <div className="faint" style={{ fontSize: 11.5 }}>One click reads the job, scores it with your profile, writes the email with your default resume from Resume Studio and sends it. It stops and shows you why if the fit is poor, no company email is found, or Gmail is not connected.</div>
           <div className="faint" style={{ fontSize: 11.5 }}>🔒 Text inside a job post is treated as data. Instructions inside it never change your rules.</div>
         </section>
 
@@ -258,14 +306,10 @@ export default function Analyzer() {
                 <div className="az-tags" style={{ margin: 0, marginLeft: 'auto' }}>{job.workMode && <span className="pill">{job.workMode}</span>}{job.employmentType && <span className="pill gray">{job.employmentType}</span>}</div>
               </div>
               {dupe && <div className="msg warn" style={{ marginTop: 8 }}>Already saved earlier. Its record was refreshed instead of duplicated.</div>}
-              {profiles.length === 0 ? (
-                <div className="msg warn" style={{ marginTop: 8 }}>Create a <Link href="/profiles" style={{ textDecoration: 'underline' }}>career profile</Link> to score this job.</div>
-              ) : (
+              {!report && (
                 <div className="az-score-row">
-                  <label className="az-f" style={{ flex: 1 }}>Career profile
-                    <select value={profileId} onChange={(e) => setProfileId(e.target.value)}>{profiles.map((p) => <option key={p._id} value={p._id}>{p.name}</option>)}</select>
-                  </label>
-                  <button className="btn primary" disabled={busy === 'match'} onClick={match}>{busy === 'match' ? 'Scoring…' : report ? '↻ Re-score' : 'Score this job'}</button>
+                  <span className="faint" style={{ flex: 1 }}>Scored against your career profile automatically.</span>
+                  <button className="btn primary" disabled={busy === 'match' || !profileId} onClick={match}>{busy === 'match' ? 'Scoring…' : 'Score this job'}</button>
                 </div>
               )}
             </section>
@@ -295,7 +339,7 @@ export default function Analyzer() {
               </div>
               {report.concerns.length > 0 && <ul className="az-concerns">{report.concerns.map((c: string) => <li key={c}>{c}</li>)}</ul>}
               {report.missingInfo.length > 0 && <div className="msg warn" style={{ marginTop: 8 }}>Not scored: {report.missingInfo.join(' ')}</div>}
-              <div className="faint" style={{ fontSize: 11.5, marginTop: 8 }}>{report.disclaimer}</div>
+              <div className="faint" style={{ fontSize: 11.5, marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}><span style={{ flex: 1 }}>{report.disclaimer}</span><button className="btn sm" disabled={busy === 'match'} onClick={match}>{busy === 'match' ? 'Scoring…' : '↻ Re-score'}</button></div>
             </section>
           )}
 
