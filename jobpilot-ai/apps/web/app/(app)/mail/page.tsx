@@ -21,7 +21,40 @@ const CLOSER = /^(best regards|kind regards|warm regards|regards|best|thanks|tha
 const URL_RE = /(https?:\/\/[^\s<>"')]+[^\s<>"').,;:!?])/g;
 const linkify = (t: string) => t.split(URL_RE).map((x, i) => i % 2 ? <a key={i} href={x} target="_blank" rel="noopener noreferrer">{x.replace(/^https?:\/\/(www\.)?/, '')}</a> : x);
 
-/** Plain-text body as readable paragraphs, with the closing signature set apart. Display only: nothing is rewritten. */
+const BULLET = /^\s*(?:[-•*·▪●]|\d{1,2}[.)])\s+(\S.*)$/;
+const KV = /^\s*([A-Za-z][A-Za-z0-9 /&+().,'-]{1,38}?)\s*:\s+(\S.*)$/;
+type Blk = { t: 'p'; x: string } | { t: 'ul'; x: string[] } | { t: 'kv'; x: [string, string][] };
+
+/** Turns plain text into paragraphs, bullet lists and "Label: value" tables. Display only: nothing is rewritten. */
+function toBlocks(text: string): Blk[] {
+  // Another flattened-list shape: "item -" lines separated by lone "-" lines. Drop the dash noise and treat the short lines as bullets.
+  if ((text.match(/^[ \t]*[-–•][ \t]*$/gm) ?? []).length >= 2) {
+    const ls = text.split('\n').filter((l) => l.trim() && !/^[ \t]*[-–•][ \t]*$/.test(l)).map((l) => l.replace(/\s+[-–]\s*$/, '').trim());
+    const short = (l: string) => l.length <= 60 && !/[.!?:]$/.test(l);
+    text = ls.map((l, i) => (i > 0 && short(l) && (short(ls[i - 1]) || short(ls[i + 1] ?? '') || i === 1) ? `- ${l}` : l)).join('\n');
+  }
+  // Some senders flatten an HTML list into "intro - - item - - item": split it back into bullet lines.
+  if ((text.match(/[ \t]+-[ \t]+-[ \t]+/g) ?? []).length >= 2) text = text.replace(/[ \t]+-[ \t]+-[ \t]+/g, '\n- ').replace(/[ \t]+-[ \t]*$/, '');
+  const out: Blk[] = [];
+  for (const para of text.split(/\n{2,}/)) {
+    const lines = para.split('\n').map((l) => l.replace(/\s+$/, '')).filter((l) => l.trim());
+    let buf: string[] = []; let ul: string[] | null = null; let kv: [string, string][] | null = null;
+    const flush = () => {
+      if (buf.length) out.push({ t: 'p', x: buf.reduce((acc, l, i) => (i === 0 ? l : acc + (buf[i - 1].length >= 62 ? ' ' : '\n') + l), '') });
+      if (ul) out.push({ t: 'ul', x: ul }); if (kv) out.push({ t: 'kv', x: kv }); buf = []; ul = null; kv = null;
+    };
+    lines.forEach((l, i) => {
+      const bm = l.match(BULLET); const km = !bm && l.length < 90 ? l.match(KV) : null;
+      const nextIsKv = !!(lines[i + 1] && lines[i + 1].length < 90 && KV.test(lines[i + 1]));
+      if (bm) { if (!ul) { flush(); ul = []; } ul.push(bm[1]); }
+      else if (km && (kv || nextIsKv)) { if (!kv) { flush(); kv = []; } kv.push([km[1], km[2]]); }
+      else { if (ul || kv) flush(); buf.push(l); }
+    });
+    flush();
+  }
+  return out;
+}
+
 function MailBody({ text }: { text: string }) {
   const lines = text.split('\n');
   const ci = lines.findIndex((l, i) => CLOSER.test(l.trim()) && lines.length - i <= 14 && i > 0);
@@ -29,7 +62,9 @@ function MailBody({ text }: { text: string }) {
   const sig = ci > 0 ? lines.slice(ci).map((l) => l.trim()).filter(Boolean) : [];
   return (
     <div className="mbody">
-      {main.split(/\n{2,}/).map((p, i) => <p key={i}>{linkify(p.replace(/\n/g, ' ').replace(/ {2,}/g, ' '))}</p>)}
+      {toBlocks(main).map((b, i) => b.t === 'ul' ? <ul key={i} className={b.x.length >= 4 && b.x.every((x) => x.length <= 42) ? 'mgrid' : undefined}>{b.x.map((x, j) => <li key={j}>{linkify(x)}</li>)}</ul>
+        : b.t === 'kv' ? <dl key={i} className="mkv">{b.x.map(([k, v], j) => <div key={j}><dt>{k}</dt><dd>{linkify(v)}</dd></div>)}</dl>
+        : <p key={i}>{linkify(b.x.replace(/ {2,}/g, ' '))}</p>)}
       {sig.length > 0 && <div className="msig">{sig.map((l, i) => <div key={i} className={i === 0 ? 'cl' : i === 1 ? 'nm' : ''}>{linkify(l)}</div>)}</div>}
     </div>
   );
@@ -152,8 +187,7 @@ export default function Mailbox() {
                   <span className="av" style={{ background: color(name) }} aria-hidden="true">{initials(name)}</span>
                   <span className="mb">
                     <span className="top"><span className="who">{mine ? `To ${name}` : name}</span><span className="when">{when(m.date)}</span></span>
-                    <span className="sub" style={{ display: 'block' }}>{dec(m.subject)}</span>
-                    <span className="snip" style={{ display: 'block' }}>{dec(m.snippet)}</span>
+                    <span className="ln"><span className="sub">{dec(m.subject)}</span><span className="snip"> — {dec(m.snippet)}</span></span>
                     {folder === 'sent' && t && (t.replied ? <span className="chip ok">✓ Replied{t.replies > 1 ? ` · ${t.replies}` : ''}</span> : <span className="chip wait">Awaiting reply · {ago(m.date)}</span>)}
                   </span>
                 </button>);
@@ -170,15 +204,15 @@ export default function Mailbox() {
                 <span className="faint">{thread.messages.length} msg{thread.messages.length > 1 ? 's' : ''}</span>
                 {tr && (tr.replied ? <span className="chip ok" style={{ margin: 0 }}>✓ Replied</span> : <span className="chip wait" style={{ margin: 0 }}>Awaiting reply</span>)}
               </div>
-              <div className="mscroll">
+              <div className="mscroll mthread">
                 {thread.messages.map((m: any) => {
                   const isOpen = !!open[m.id]; const [fresh, old] = split(m.body); const showAll = quoted[m.id];
                   return (
-                    <article key={m.id} className={`mmsg ${m.mine ? 'mine' : ''}`}>
+                    <article key={m.id} className={`mmsg ${m.mine ? 'mine' : 'in'}`} style={{ ['--rc' as any]: m.mine ? '#6366F1' : color(m.from.name) }}>
                       <div className="mh" onClick={() => setOpen({ ...open, [m.id]: !isOpen })} role="button" tabIndex={0} aria-expanded={isOpen} onKeyDown={(e) => e.key === 'Enter' && setOpen({ ...open, [m.id]: !isOpen })}>
                         <span className="av" style={{ background: m.mine ? '#64748B' : color(m.from.name) }} aria-hidden="true">{m.mine ? 'ME' : initials(m.from.name)}</span>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}><b style={{ fontSize: 12.5 }}>{m.mine ? 'You' : m.from.name}</b><span className="faint" style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{isOpen ? `to ${recip(m.to)}` : tidy(m.body).replace(/\s+/g, ' ').slice(0, 90)}</span><span className="faint">{new Date(m.date).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span></div>
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}><b style={{ fontSize: 12.5 }}>{m.mine ? 'You' : m.from.name}</b><em className="mdir">{m.mine ? 'Sent' : 'Received'}</em><span className="faint" style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{isOpen ? `to ${recip(m.to)}` : tidy(m.body).replace(/\s+/g, ' ').slice(0, 90)}</span><span className="faint">{new Date(m.date).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span></div>
                         </div>
                       </div>
                       {isOpen && (<>

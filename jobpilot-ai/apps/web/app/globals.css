@@ -1220,3 +1220,44 @@ html, body { overflow-x: clip; }
   .ag-row2 .ag-btns { margin-left: 0; width: 100%; } .ag-row2 .ag-btns .btn { flex: 1; justify-content: center; }
   .ag-modes { grid-template-columns: 1fr; } .ag-nums { grid-template-columns: 1fr 1fr; } .ag-2 { grid-template-columns: 1fr; }
 }
+
+/* ---- Mail body: lists and label/value tables ---- */
+.mbody p { white-space: pre-line; }
+.mbody ul { margin: 0 0 8px; padding-left: 20px; } .mbody li { margin: 2px 0; padding-left: 2px; word-break: break-word; }
+.mkv { margin: 2px 0 10px; border: 1px solid var(--line); border-radius: 10px; background: #F8FAFF; overflow: hidden; }
+.mkv > div { display: grid; grid-template-columns: minmax(110px, 34%) 1fr; gap: 10px; padding: 6px 10px; border-top: 1px solid var(--line-2); font-size: 12.5px; }
+.mkv > div:first-child { border-top: 0; } .mkv dt { color: var(--muted); font-weight: 600; margin: 0; } .mkv dd { margin: 0; color: var(--ink); font-weight: 500; word-break: break-word; }
+@media (max-width: 640px) { .mkv > div { grid-template-columns: 1fr; gap: 0; } }
+
+/* ---- Mail body: compact grid for short list items; tighter message spacing ---- */
+.mbody { max-width: 760px; } .mbody p { margin: 0 0 6px; line-height: 1.5; }
+.mbody ul.mgrid { list-style: none; padding: 0; margin: 2px 0 8px; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 5px 8px; }
+.mbody ul.mgrid li { margin: 0; padding: 5px 9px 5px 24px; position: relative; border: 1px solid var(--line); border-radius: 8px; background: #F8FAFF; font-size: 12.5px; font-weight: 500; line-height: 1.3; }
+.mbody ul.mgrid li::before { content: ''; position: absolute; left: 9px; top: 50%; width: 6px; height: 6px; margin-top: -3px; border-radius: 50%; background: var(--primary); }
+.mbody ul:not(.mgrid) { margin: 0 0 6px; padding-left: 18px; } .mbody ul:not(.mgrid) li { margin: 1px 0; }
+.mkv { margin: 2px 0 8px; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 0; } .mkv > div { grid-template-columns: 1fr; gap: 0; padding: 5px 10px; border-top: 0; border-bottom: 1px solid var(--line-2); } .mkv dt { font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; } .mkv dd { font-size: 13px; }
+.mmsg { padding-top: 6px; padding-bottom: 6px; } .mmsg .acts { margin-top: 4px; }
+
+/* ---- Mail thread: separate incoming / outgoing cards with proper spacing ---- */
+.mscroll.mthread { display: flex; flex-direction: column; gap: 14px; padding: 14px 16px 18px; background: #F5F6FB; }
+.mmsg { position: relative; width: fit-content; min-width: min(100%, 360px); max-width: min(94%, 860px); padding: 12px 16px 14px; border: 1px solid var(--line); border-radius: 14px; background: #fff; box-shadow: 0 1px 2px rgba(16,24,40,.05), 0 4px 14px rgba(16,24,40,.04); }
+.mmsg.in { align-self: flex-start; border-left: 4px solid var(--rc, #4F46E5); border-top-left-radius: 4px; }
+.mmsg.mine { align-self: flex-end; background: linear-gradient(180deg, #EEF2FF, #F5F7FF); border-color: #C7D2FE; border-right: 4px solid #6366F1; border-top-right-radius: 4px; }
+.mmsg .mh { gap: 10px; padding-bottom: 8px; border-bottom: 1px dashed rgba(100,116,139,.25); }
+.mmsg .mh .av { width: 30px; height: 30px; font-size: 11px; }
+.mmsg .mdir { font-style: normal; font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; padding: 2px 7px; border-radius: 999px; background: #E0E7FF; color: #4338CA; align-self: center; }
+.mmsg.in .mdir { background: #ECFDF5; color: #047857; }
+.mmsg .mbody { margin: 10px 0 0; max-width: none; } .mmsg .matts { margin: 12px 0 0; max-width: none; } .mmsg .acts { margin: 10px 0 0; }
+.mmsg .msig { margin-top: 10px; }
+@media (max-width: 640px) { .mscroll.mthread { padding: 10px; gap: 10px; } .mmsg { max-width: 100%; min-width: 0; width: auto; padding: 10px 12px 12px; } .mmsg.in, .mmsg.mine { align-self: stretch; } }
+
+/* ---- Mail list: two-line compact rows (about twice as many visible) ---- */
+.mrow { padding: 6px 10px; gap: 8px; align-items: center; min-height: 0; margin: 0; border-radius: 0; box-shadow: none; }
+.mrow .mb { display: flex; flex-direction: column; gap: 1px; }
+.mrow .top { line-height: 1.25; } .mrow .who { font-size: 12.5px; }
+.mrow .ln { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.3; font-size: 12px; }
+.mrow .ln .sub { display: inline; font-size: 12px; color: var(--ink); } .mrow .ln .snip { display: inline; font-size: 11.5px; color: var(--muted); font-weight: 400; }
+.mrow:not(.unread) .ln .sub { font-weight: 500; }
+.mrow .av { width: 28px; height: 28px; font-size: 10.5px; flex: none; }
+.mrow.unread .av { box-shadow: 0 0 0 1.5px #fff, 0 0 0 3px var(--primary); }
+.mrow .chip { margin-top: 1px; align-self: flex-start; }
