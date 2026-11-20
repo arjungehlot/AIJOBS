@@ -83,8 +83,8 @@ export class WhatsappService {
     const order: ('key' | 'bearer')[] = this.authMode ? [this.authMode] : env.waAuthHeader === 'bearer' ? ['bearer', 'key'] : ['key', 'bearer'];
     let res: Response | null = null; let json: any = {};
     for (const mode of order) {
-      const auth = mode === 'bearer' ? { Authorization: `Bearer ${env.waGatewayKey}` } : { [env.waAuthHeader && env.waAuthHeader !== 'bearer' ? env.waAuthHeader : 'x-api-key']: env.waGatewayKey };
-      try { res = await fetch(`${env.waGatewayUrl}${path}`, { ...init, headers: { Accept: 'application/json', ...auth, ...(init.headers ?? {}) }, signal: AbortSignal.timeout(45_000) }); }
+      const auth: Record<string, string> = mode === 'bearer' ? { Authorization: `Bearer ${env.waGatewayKey}` } : { [env.waAuthHeader && env.waAuthHeader !== 'bearer' ? env.waAuthHeader : 'x-api-key']: env.waGatewayKey };
+      try { res = await fetch(`${env.waGatewayUrl}${path}`, { ...init, headers: { Accept: 'application/json', ...auth, ...(init.headers ?? {}) } as Record<string, string>, signal: AbortSignal.timeout(45_000) }); }
       catch (e: any) { throw new WhatsappError(`Could not reach the WhatsApp gateway: ${String(e?.message ?? e).slice(0, 120)}`); }
       json = await res.json().catch(() => ({}));
       if (res.status !== 401) { this.authMode = mode; break; }
