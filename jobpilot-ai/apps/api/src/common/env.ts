@@ -52,7 +52,7 @@ export const env = {
   get superAdminPassword() { return process.env.SUPER_ADMIN_PASSWORD ?? ''; },
   get superAdminName() { return (process.env.SUPER_ADMIN_NAME ?? 'Super Admin').trim() || 'Super Admin'; },
   /** WhatsApp Business Cloud API (Meta). Several common variable names are accepted. */
-  get waToken() { return (process.env.WHATSAPP_ACCESS_TOKEN ?? process.env.WHATSAPP_TOKEN ?? process.env.WHATSAPP_API_KEY ?? '').trim(); },
+  get waToken() { return (process.env.WHATSAPP_ACCESS_TOKEN ?? process.env.WHATSAPP_TOKEN ?? '').trim(); },
   get waPhoneId() { return (process.env.WHATSAPP_PHONE_NUMBER_ID ?? process.env.WHATSAPP_PHONE_ID ?? '').trim(); },
   get waVersion() { return (process.env.WHATSAPP_API_VERSION ?? 'v21.0').trim(); },
   /** An approved message template lets you start a chat with people who have not messaged you (required by WhatsApp). */
@@ -61,6 +61,14 @@ export const env = {
   get waTemplateDocHeader() { return (process.env.WHATSAPP_TEMPLATE_HEADER_DOCUMENT ?? 'true') !== 'false'; },
   get waTemplateParams() { return Math.max(0, Math.min(6, Number(process.env.WHATSAPP_TEMPLATE_PARAMS ?? 3) || 0)); },
   get waDefaultCc() { return (process.env.WHATSAPP_DEFAULT_COUNTRY_CODE ?? '91').replace(/\D/g, '') || '91'; },
-  get waConfigured() { return !!(this.waToken && this.waPhoneId); },
+  /** Unofficial gateway (e.g. https://whatsaapapi.nearmeteacher.in/api). When set it is used instead of Meta's API. */
+  get waGatewayUrl() { return (process.env.WHATSAPP_BASE_URL ?? '').trim().replace(/\/+$/, ''); },
+  get waGatewayKey() { return (process.env.WHATSAPP_API_KEY ?? '').trim(); },
+  get waGatewayOn() { return !!(this.waGatewayUrl && this.waGatewayKey); },
+  get waConnectedPhone() { return (process.env.WHATSAPP_CONNECTED_PHONE ?? '').trim(); },
+  get waChannel() { return (process.env.WHATSAPP_CHANNEL_NAME ?? '').trim(); },
+  /** Header that carries the gateway key (default x-api-key; "bearer" sends Authorization: Bearer). Both are tried automatically. */
+  get waAuthHeader() { return (process.env.WHATSAPP_AUTH_HEADER ?? 'x-api-key').trim().toLowerCase(); },
+  get waConfigured() { return this.waGatewayOn || !!(this.waToken && this.waPhoneId); },
   get mailProvider() { return process.env.MAIL_PROVIDER ?? 'mock'; },
 };

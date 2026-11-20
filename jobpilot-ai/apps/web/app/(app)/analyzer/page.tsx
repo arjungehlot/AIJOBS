@@ -106,14 +106,16 @@ export default function Analyzer() {
       setDraft((x) => ({ ...x, email, confidence }));
       setStage('Scoring…');
       const rep = await api(`/jobs/${jb._id}/match`, { body: { careerProfileId: profileId } }); setReport(rep);
-      setStage('Writing your email…');
+      setStage('Writing your email…'); setWriting(true);
       let dr: any;
       try { dr = await api('/applications/ai-draft', { body: { jobId: jb._id, careerProfileId: profileId, tone: 'professional' } }); }
-      catch (e) { setErr(errText(e)); const p = profiles.find((x) => x._id === profileId); setDraft((x) => ({ ...x, subject: `Application: ${jb.title} – ${jb.company}`, body: fallbackBody2(jb, rep, p) })); setMeta({ resumeId: null, attached: false, provider: 'template' }); return; }
+      catch (e) { setErr(errText(e)); const p = profiles.find((x) => x._id === profileId); setDraft((x) => ({ ...x, subject: `Application: ${jb.title} – ${jb.company}`, body: fallbackBody2(jb, rep, p) })); setMeta({ resumeId: null, attached: false, provider: 'template' }); return; } finally { setWriting(false); }
       setMeta({ resumeId: dr.resumeId, attached: dr.resumeAttached, provider: dr.provider });
       const to = email || dr.recipient?.email || '';
       setDraft((x) => ({ ...x, subject: dr.subject, body: dr.body, email: to, confidence: email ? 'source_reported' : to ? 'inferred' : 'unverified' }));
-      const why = !to ? 'No company email was found in the post. Add one below, then press Send.'
+      const unfinished = dr.provider !== 'gemini' || (dr.body ?? '').trim().length < 80 || !(dr.subject ?? '').trim();
+      const why = unfinished ? 'The AI email was not generated properly (it used a plain template or came back too short), so nothing was sent. Press “Rewrite with AI”, check the text, then press Send.'
+        : !to ? 'No company email was found in the post. Add one below, then press Send.'
         : !email ? 'The email address was not in the post itself. Please confirm it below, then press Send.'
         : !dr.resumeAttached ? 'No resume PDF on file. Upload one in Resume Studio, then press Send.'
         : !live ? 'Gmail is not connected, so the email is ready but not sent.'

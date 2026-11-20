@@ -40,22 +40,31 @@ export default function Agent() {
 
   return (
     <>
-      <div className="ph"><div><h1>AI agent</h1><p>Finds openings, scores them, writes the emails and attaches your resume, inside the limits you set. It only sends by itself in Autonomous mode with auto-send and real Gmail sending on.</p></div></div>
       {err && <div className="msg err" role="alert">{err}</div>}
 
       <section className={`card ag-top ${on ? 'live' : ''}`}>
-        <div className="ag-state">
-          <span className="ag-dot" aria-hidden="true" />
-          <div><b>{on ? 'Agent is active' : 'Agent is paused'}</b><small>{on ? (c.autoRun && c.mode !== 'manual' ? `Hands-off · runs about every ${c.autoRunEveryMin} min inside your run window` : 'Runs only when you press a Run button') : 'Nothing is prepared until you resume'}</small></div>
-          <span className="pill gray" style={{ textTransform: 'capitalize' }}>{c.mode}</span>
+        <div className="ag-row1">
+          <div className="ag-title"><span className="ag-ic"><Icon name="bot" size={18} /></span>
+            <div><h1>AI agent</h1><p>Finds openings, scores them, writes emails and attaches your resume, inside the limits you set. It sends by itself only in Autonomous mode with auto-send and real Gmail on.</p></div></div>
+          <div className="ag-btns">
+            <button className="btn" disabled={busy} onClick={() => run(true)} title="Dry run changes nothing">Dry run</button>
+            <button className="btn primary" disabled={busy || c.paused || c.mode === 'manual'} title={c.paused ? 'Resume the agent first' : c.mode === 'manual' ? 'Manual mode never prepares drafts' : 'A live run can create drafts and, in Autonomous mode with auto-send on, send qualifying ones'} onClick={() => run(false, true)}>{busy ? 'Running…' : '▶ Find jobs & run'}</button>
+          </div>
         </div>
-        <div className="ag-ready">
-          {ready.map((r) => <span key={r.t} className={`ag-r ${r.ok ? 'ok' : 'no'}`} title={r.h}><i />{r.t}{r.h && r.ok && r.t.startsWith('Gmail') && <small>{r.h}</small>}</span>)}
-          <a href="/settings/ai" className="ag-link">AI settings →</a>
-        </div>
-        <div className="ag-btns">
-          <button className={`btn ${on ? '' : 'primary'}`} onClick={() => api(`/agent/${on ? 'pause' : 'resume'}`, { body: {} }).then(setC)}>{on ? 'Pause' : 'Resume'}</button>
-          <button className="btn danger" onClick={() => api('/agent/stop', { body: {} }).then(setC)}><Icon name="stop" size={12} />Emergency stop</button>
+        <div className="ag-row2">
+          <div className="ag-state">
+            <span className="ag-dot" aria-hidden="true" />
+            <div><b>{on ? 'Agent is active' : 'Agent is paused'}</b><small>{on ? (c.autoRun && c.mode !== 'manual' ? `Hands-off · about every ${c.autoRunEveryMin} min in your run window` : 'Runs only when you press Run') : 'Nothing is prepared until you resume'}</small></div>
+            <span className="pill gray" style={{ textTransform: 'capitalize' }}>{c.mode}</span>
+          </div>
+          <div className="ag-ready">
+            {ready.map((r) => <span key={r.t} className={`ag-r ${r.ok ? 'ok' : 'no'}`} title={r.h || r.t}><i />{r.t}</span>)}
+            <a href="/settings/ai" className="ag-link">AI settings →</a>
+          </div>
+          <div className="ag-btns">
+            <button className={`btn sm ${on ? '' : 'primary'}`} onClick={() => api(`/agent/${on ? 'pause' : 'resume'}`, { body: {} }).then(setC)}>{on ? '⏸ Pause' : '▶ Resume'}</button>
+            <button className="btn sm danger" onClick={() => api('/agent/stop', { body: {} }).then(setC)}><Icon name="stop" size={12} />Emergency stop</button>
+          </div>
         </div>
       </section>
 
@@ -104,17 +113,8 @@ export default function Agent() {
           </section>
 
           <section className="card ag-card">
-            <div className="ag-h"><h2>Run</h2><small>Dry run changes nothing</small></div>
-            <div className="ag-btns" style={{ marginLeft: 0 }}>
-              <button className="btn" disabled={busy} onClick={() => run(true)}>Dry run</button>
-              <button className="btn primary" disabled={busy || c.paused || c.mode === 'manual'} title={c.paused ? 'Resume the agent first' : c.mode === 'manual' ? 'Manual mode never prepares drafts' : ''} onClick={() => run(false, true)}>{busy ? 'Running…' : 'Find jobs & run now'}</button>
-            </div>
-            <small className="faint">A live run can create drafts and, in Autonomous mode with auto-send on, send qualifying ones.</small>
-          </section>
-
-          <section className="card ag-card">
             <div className="ag-h"><h2>Recent runs</h2></div>
-            {runs.length === 0 ? <div className="faint">No runs yet.</div> : <div className="ag-runs">{runs.slice(0, 6).map((r) => (
+            {runs.length === 0 ? <div className="faint">No runs yet.</div> : <div className="ag-runs">{runs.slice(0, 5).map((r) => (
               <div key={r._id} className="ag-run">
                 <span className={`pill ${r.kind === 'dry_run' ? 'gray' : 'ok'}`}>{r.kind === 'dry_run' ? 'Dry' : 'Live'}</span>
                 <span className="sm">{Object.entries(r.summary).map(([k, v]) => `${v} ${ACT[k]?.l.toLowerCase() ?? k}`).join(' · ') || 'No jobs evaluated'}</span>

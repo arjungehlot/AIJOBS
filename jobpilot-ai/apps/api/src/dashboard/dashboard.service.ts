@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
+import { Model, PipelineStage, Types } from 'mongoose';
 import { AI_PROVIDER, AiProvider } from '../ai/ai.provider';
 import { Application } from '../applications/application.schema';
 import { CareerProfile } from '../career-profiles/career-profile.schema';
@@ -40,7 +40,7 @@ export class DashboardService {
     const now = Date.now();
     const startToday = new Date(); startToday.setHours(0, 0, 0, 0);
     const d7 = new Date(now - 7 * DAY); const d14 = new Date(now - 14 * DAY); const d30 = new Date(now - 30 * DAY);
-    const group = (field: string, extra: any = {}) => [{ $match: { userId: uid, ...extra } }, { $group: { _id: field, n: { $sum: 1 } } }, { $sort: { n: -1 } }];
+    const group = (field: string, extra: any = {}): PipelineStage[] => [{ $match: { userId: uid, ...extra } }, { $group: { _id: field, n: { $sum: 1 } } }, { $sort: { n: -1 } }];
     const safe = <T,>(p: Promise<T>, fallback: T) => p.catch(() => fallback);
 
     const [

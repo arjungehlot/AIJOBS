@@ -7,5 +7,6 @@ import { SendJobDto, WhatsappService } from './whatsapp.service';
 export class WhatsappController {
   constructor(private readonly svc: WhatsappService) {}
   @Get('status') status() { return this.svc.status(); }
+  @Get('check') check() { return this.svc.check().catch((e: any) => ({ ok: false, message: String(e?.message ?? e) })); }
   @Post('send-job') sendJob(@CurrentUser() u: AuthUser, @Body(new ZodPipe(SendJobDto)) d: any) { return this.svc.sendForJob(u.id, d); }
 }
